@@ -41,12 +41,13 @@ exec("import %s" % os.path.basename(args.config_file).split(".")[0])
 has_spark_tests = (len(config.SPARK_TESTS) > 0)
 should_prep_spark = (not config.SPARK_SKIP_PREP) and (not config.USE_CLUSTER_SPARK)
 
-# Since Spark is always going to prepared, streaming does not require extra preparation
+# Since Spark is always going to prepared, streaming and mllib do not require extra preparation
 has_streaming_tests = (len(config.STREAMING_TESTS) > 0)
-
+has_mllib_tests = (len(config.MLLIB_TESTS) > 0)
 # Only build the perf test sources that will be used.
 should_prep_spark_tests = has_spark_tests and not config.SPARK_SKIP_TEST_PREP
 should_prep_streaming_tests = has_streaming_tests and not config.STREAMING_SKIP_TEST_PREP
+should_prep_mllib_tests = has_mllib_tests and not config.MLLIB_SKIP_TEST_PREP
 
 # Do disk warmup only if there are tests to run.
 should_warmup_disk = has_spark_tests and not config.SKIP_DISK_WARMUP
@@ -209,6 +210,13 @@ if should_prep_streaming_tests:
 elif has_streaming_tests:
     spark_test_jar_path = "%s/streaming-tests/target/streaming-perf-tests-assembly.jar" % proj_dir
     assert os.path.exists(spark_test_jar_path), ("You tried to skip packaging the Spark Streaming perf " +
+        "tests, but %s was not already present") % spark_test_jar_path
+
+if should_prep_mllib_tests:
+    run_cmd("cd %s/mllib-tests; %s clean assembly" % (proj_dir, sbt_cmd))
+elif has_mllib_tests:
+    spark_test_jar_path = "%s/mllib-tests/target/mllib-perf-tests-assembly.jar" % proj_dir
+    assert os.path.exists(spark_test_jar_path), ("You tried to skip packaging the MLlib perf " +
         "tests, but %s was not already present") % spark_test_jar_path
 
 # Start our Spark cluster.
@@ -376,6 +384,13 @@ if has_streaming_tests:
     streaming_test_jar = "%s/streaming-tests/target/streaming-perf-tests-assembly.jar" % proj_dir
     run_tests(streaming_test_jar, config.STREAMING_TESTS, "Streaming-Tests",
         process_streaming_output, config.STREAMING_OUTPUT_FILENAME)
+
+# TODO (Burak): write process script task special to MLlib that processes both clock time and
+# the accuracy of the algorithms
+if has_mllib_tests:
+    mllib_test_jar = "%s/mllib-tests/target/mllib-perf-tests-assembly.jar" % proj_dir
+    run_tests(mllib_test_jar, config.MLLIB_TESTS, "MLlib-Tests",
+        process_trials_output, config.MLLIB_OUTPUT_FILENAME)
 
 print("All tests have finished running. Stopping Spark standalone cluster ...")
 run_cmd("%s/sbin/stop-all.sh" % effective_spark_home)

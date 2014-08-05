@@ -1,6 +1,6 @@
 package mllib.perf.util
 
-import org.apache.spark.mllib.linalg.Vector
+import org.apache.spark.mllib.linalg.{Vectors, Vector}
 import org.apache.spark.mllib.random.{RandomDataGenerator, RandomRDDGenerators}
 import org.apache.spark.mllib.recommendation.Rating
 import org.apache.spark.mllib.regression.LabeledPoint
@@ -16,25 +16,23 @@ object DataGenerator {
   def generateLabeledPoints( sc: SparkContext,
                              numRows: Long,
                              numCols: Int,
+                             intercept: Double,
+                             eps: Double,
                              numPartitions: Int,
                              seed: Long = System.currentTimeMillis()): RDD[LabeledPoint] = {
 
-    val featureMatrix = RandomRDDGenerators.uniformVectorRDD(sc, numRows, numCols, numPartitions, seed)
-    val labelMatrix = RandomRDDGenerators.normalRDD(sc, numRows, numPartitions, seed)
-
-    labelMatrix.zip(featureMatrix).map(pair => new LabeledPoint(pair._1, pair._2))
+    RandomRDDGenerators.randomRDD(sc, new LinearDataGenerator(numCols,intercept, seed, eps), numRows, numPartitions, seed)
   }
 
   def generateClassificationLabeledPoints( sc: SparkContext,
                              numRows: Long,
                              numCols: Int,
                              numPartitions: Int,
+                             threshold: Double,
+                             scaleFactor: Double,
                              seed: Long = System.currentTimeMillis()): RDD[LabeledPoint] = {
 
-    val featureMatrix = RandomRDDGenerators.uniformVectorRDD(sc, numRows, numCols, numPartitions, seed)
-    val labelMatrix = RandomRDDGenerators.randomRDD(sc, new ClassLabelGenerator, numRows, numPartitions, seed)
-
-    labelMatrix.zip(featureMatrix).map(pair => new LabeledPoint(pair._1, pair._2))
+    RandomRDDGenerators.randomRDD(sc, new ClassLabelGenerator(numCols,threshold, scaleFactor), numRows, numPartitions, seed)
   }
 
   def generateVectors( sc: SparkContext,
@@ -60,9 +58,10 @@ object DataGenerator {
 }
 
 class RatingGenerator(val numUsers: Int,
-                      val numProducts: Int) extends RandomDataGenerator[Rating] {
+                      val numProducts: Int,
+                      val seed: Long) extends RandomDataGenerator[Rating] {
 
-  private val rng = new java.util.Random()
+  private val rng = new java.util.Random(seed)
   private val observed = new mutable.HashMap[(Int, Int), Boolean]()
 
   override def nextValue(): Rating = {
@@ -82,15 +81,47 @@ class RatingGenerator(val numUsers: Int,
   override def copy(): RatingGenerator = new RatingGenerator(numUsers, numProducts)
 }
 
-class ClassLabelGenerator extends RandomDataGenerator[Double] {
+class ClassLabelGenerator(val numFeatures: Int,
+                          val threshold: Double,
+                          val scaleFactor: Double) extends RandomDataGenerator[LabeledPoint] {
 
   private val rng = new java.util.Random()
 
-  override def nextValue(): Double = if (rng.nextBoolean()) 1.0 else 0.0
+  override def nextValue(): LabeledPoint = {
+    val y = if (rng.nextDouble() < threshold) 0.0 else 1.0
+    val x = Array.fill[Double](numFeatures) {
+      rnd.nextGaussian() + (y * scaleFactor)
+    }
+
+    LabeledPoint(y, Vectors.dense(x))
+  }
 
   override def setSeed(seed: Long) {
     rng.setSeed(seed)
   }
 
-  override def copy(): ClassLabelGenerator = new ClassLabelGenerator()
+  override def copy(): ClassLabelGenerator = new ClassLabelGenerator(numFeatures, threshold, scaleFactor)
+}
+
+class LinearDataGenerator(val numFeatures: Int,
+                          val intercept: Double,
+                          val seed: Long,
+                          val eps: Double) extends RandomDataGenerator[LabeledPoint] {
+
+  private val rng = new java.util.Random(seed)
+
+  private val weights = Array.fill(numFeatures)(rng.nextDouble())
+
+  override def nextValue(): LabeledPoint = {
+    val x = Array.fill[Double](numFeatures)(rng.nextDouble())
+    val y = weights.zip(x).map(p => p._1 * p._2).sum + intercept + eps*rng.nextGaussian()
+
+    LabeledPoint(y, Vectors.dense(x))
+  }
+
+  override def setSeed(seed: Long) {
+    rng.setSeed(seed)
+  }
+
+  override def copy(): ClassLabelGenerator = new ClassLabelGenerator(numFeatures, threshold, scaleFactor)
 }

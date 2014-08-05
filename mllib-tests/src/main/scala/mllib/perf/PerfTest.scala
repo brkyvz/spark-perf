@@ -11,6 +11,7 @@ abstract class PerfTest extends Logging {
   val NUM_PARTITIONS =      ("num-partitions", "number of input partitions")
   val RANDOM_SEED =         ("random-seed", "seed for random number generator")
   val NUM_ITERATIONS =      ("num-iterations",   "number of iterations for the algorithm")
+  val REGULARIZATION =      ("reg-param",   "the regularization parameter against overfitting")
 
   /** Initialize internal state based on arguments */
   def initialize(testName_ : String, otherArgs: Array[String]) {
@@ -27,6 +28,11 @@ abstract class PerfTest extends Logging {
   var optionSet: OptionSet = _
   var testName: String = _
 
+  var intOptions: Seq[(String, String)] = Seq(NUM_TRIALS, INTER_TRIAL_WAIT, NUM_PARTITIONS, RANDOM_SEED,
+    NUM_ITERATIONS)
+
+  var doubleOptions: Seq[(String, String)] = Seq(REGULARIZATION)
+
 
   val stringOptions: Seq[(String, String)] = Seq()
   val booleanOptions: Seq[(String, String)] = Seq()
@@ -38,13 +44,26 @@ abstract class PerfTest extends Logging {
   booleanOptions.map{case (opt, desc) =>
     parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Boolean]).required()
   }
+  intOptions.map{case (opt, desc) =>
+    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Int]).required()
+  }
 
-  def intOptionValue(option: (String, String)) =
-    optionSet.valueOf(option._1).asInstanceOf[Int]
+  doubleOptions.map{case (opt, desc) =>
+    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Double]).required()
+  }
 
-  def stringOptionValue(option: (String, String)) =
-    optionSet.valueOf(option._1).asInstanceOf[String]
+  longOptions.map{case (opt, desc) =>
+    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Long]).required()
+  }
 
-  def booleanOptionValue(option: (String, String)) =
-    optionSet.valueOf(option._1).asInstanceOf[Boolean]
+
+  def intOptionValue(option: (String, String)) = optionSet.valueOf(option._1).asInstanceOf[Int]
+
+  def stringOptionValue(option: (String, String)) = optionSet.valueOf(option._1).asInstanceOf[String]
+
+  def booleanOptionValue(option: (String, String)) = optionSet.valueOf(option._1).asInstanceOf[Boolean]
+
+  def doubleOptionValue(option: (String, String)) = optionSet.valueOf(option._1).asInstanceOf[Double]
+
+  def longOptionValue(option: (String, String)) = optionSet.valueOf(option._1).asInstanceOf[Long]
 }

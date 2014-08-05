@@ -24,7 +24,7 @@ object TestRunner {
         case "naive-bayes" => new NaiveBayesTest(sc)
         case "svm" => new SVMTest(sc)
         case "kmeans" => new KMeansTest(sc)
-        case "decision-tree" => new DecisionTreeTest(sc)
+        //case "decision-tree" => new DecisionTreeTest(sc)
     }
     test.initialize(testName, perfTestArgs)
     test.createInputData()

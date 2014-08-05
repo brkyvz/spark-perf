@@ -342,7 +342,7 @@ def stats_for_results(result_list):
     result_med = sorted_results[len(sorted_results)/2]
     if (len(result_list) % 2 ==0):
         result_med = (sorted_results[len(result_list)/2] + sorted_results[len(result_list)/2+1])/2
-    result_std = sqrt(variance(result_list))
+    result_std = sqrt(variance(sorted_results))
     result_min = sorted_results[0]
 
     return (result_med, result_std, result_min, result_first, result_last)
@@ -399,7 +399,7 @@ def process_mllib_output(short_name, opt_list, stdout_filename, stderr_filename)
     result_string = "%s, %s\n" % (short_name, " ".join(opt_list))
 
     result_string += "Runtime: %s, %.3f, %s, %s, %s\n" % stats_for_results([x.split(";")[0] for x in result_list])
-    result_string += "Rmse: %s, %.3f, %s, %s, %s" % stats_for_results([x.split(";")[1] for x in result_list])
+    result_string += "Metric: %s, %.3f, %s, %s, %s" % stats_for_results([x.split(";")[1] for x in result_list])
 
     sys.stdout.flush()
     return result_string

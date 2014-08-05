@@ -85,12 +85,14 @@ abstract class RegressionTest(sc: SparkContext) extends RegressionAndClassificat
   }
 
   override def validate(model: GeneralizedLinearModel, rdd: RDD[LabeledPoint]): Double = {
+    val numExamples = rdd.count()
+
     val predictions: RDD[(Double, Double)] = rdd.map { example =>
       (model.predict(example.features), example.label)
     }
     predictions.map{case (pred, label) =>
       (pred-label) * (pred-label)
-    }.reduce(_ + _) / predictions.count()
+    }.reduce(_ + _) / numExamples
   }
 }
 
@@ -126,12 +128,14 @@ abstract class ClassificationTest(sc: SparkContext) extends RegressionAndClassif
   }
 
   override def validate(model: GeneralizedLinearModel, rdd: RDD[LabeledPoint]): Double = {
+    val numExamples = rdd.count()
+
     val predictions: RDD[(Double, Double)] = rdd.map { example =>
       (model.predict(example.features), example.label)
     }
     predictions.map{case (pred, label) =>
       pred.toByte ^ label.toByte ^ 1
-    }.reduce(_ + _) * 100.0 / predictions.count()
+    }.reduce(_ + _) * 100.0 / numExamples
   }
 
 }

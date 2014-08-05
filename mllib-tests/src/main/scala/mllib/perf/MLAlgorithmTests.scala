@@ -34,25 +34,6 @@ abstract class RegressionAndClassificationTests(sc: SparkContext) extends PerfTe
   var rdd: RDD[LabeledPoint] = _
   var testRdd: RDD[LabeledPoint] = _
 
-  override def run(): Seq[(Double, Double, Double)] = {
-    val numTrials = intOptionValue(NUM_TRIALS)
-    val numIterations = intOptionValue(NUM_ITERATIONS)
-    val interTrialWait = intOptionValue(INTER_TRIAL_WAIT)
-
-    val result = (1 to numTrials).map { t =>
-      val start = System.currentTimeMillis()
-      val model = runTest(rdd, numIterations)
-      val end = System.currentTimeMillis()
-      val time = (end - start).toDouble / 1000.0
-      val metricOnTrain = validate(model, rdd)
-      val metric = validate(model, testRdd)
-      System.gc()
-      Thread.sleep(interTrialWait * 1000)
-      (time, metricOnTrain, metric)
-    }
-
-    result
-  }
 }
 
 abstract class RegressionTest(sc: SparkContext) extends RegressionAndClassificationTests(sc) {
@@ -93,6 +74,30 @@ abstract class RegressionTest(sc: SparkContext) extends RegressionAndClassificat
     predictions.map{case (pred, label) =>
       (pred-label) * (pred-label)
     }.reduce(_ + _) / numExamples
+  }
+
+  override def run(): Seq[(Double, Double, Double)] = {
+    val numTrials = intOptionValue(NUM_TRIALS)
+    val numIterations = intOptionValue(NUM_ITERATIONS)
+    val interTrialWait = intOptionValue(INTER_TRIAL_WAIT)
+    val intercept = doubleOptionValue(INTERCEPT)
+
+    val result = (1 to numTrials).map { t =>
+      val start = System.currentTimeMillis()
+      val model = runTest(rdd, numIterations)
+      val end = System.currentTimeMillis()
+      val time = (end - start).toDouble / 1000.0
+
+      assert((model.intercept-intercept)<1e-2)
+
+      val metricOnTrain = validate(model, rdd)
+      val metric = validate(model, testRdd)
+      System.gc()
+      Thread.sleep(interTrialWait * 1000)
+      (time, metricOnTrain, metric)
+    }
+
+    result
   }
 }
 
@@ -136,6 +141,26 @@ abstract class ClassificationTest(sc: SparkContext) extends RegressionAndClassif
     predictions.map{case (pred, label) =>
       pred.toByte ^ label.toByte ^ 1
     }.reduce(_ + _) * 100.0 / numExamples
+  }
+
+  override def run(): Seq[(Double, Double, Double)] = {
+    val numTrials = intOptionValue(NUM_TRIALS)
+    val numIterations = intOptionValue(NUM_ITERATIONS)
+    val interTrialWait = intOptionValue(INTER_TRIAL_WAIT)
+
+    val result = (1 to numTrials).map { t =>
+      val start = System.currentTimeMillis()
+      val model = runTest(rdd, numIterations)
+      val end = System.currentTimeMillis()
+      val time = (end - start).toDouble / 1000.0
+      val metricOnTrain = validate(model, rdd)
+      val metric = validate(model, testRdd)
+      System.gc()
+      Thread.sleep(interTrialWait * 1000)
+      (time, metricOnTrain, metric)
+    }
+
+    result
   }
 
 }
@@ -243,7 +268,10 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
 class LinearRegressionTest(sc: SparkContext) extends RegressionTest(sc) {
   override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): LinearRegressionModel = {
     val stepSize = doubleOptionValue(STEP_SIZE)
-    LinearRegressionWithSGD.train(rdd, numIterations, stepSize)
+    val lr = new LinearRegressionWithSGD().setIntercept(true)
+    lr.optimizer.setNumIterations(numIterations).setStepSize(stepSize)
+
+    lr.run(rdd)
   }
 }
 
@@ -251,8 +279,10 @@ class RidgeRegressionTest(sc: SparkContext) extends RegressionTest(sc) {
   override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): RidgeRegressionModel = {
     val stepSize = doubleOptionValue(STEP_SIZE)
     val regParam = doubleOptionValue(REGULARIZATION)
+    val rr = new LinearRegressionWithSGD().setIntercept(true)
+    rr.optimizer.setNumIterations(numIterations).setStepSize(stepSize).setRegParam(regParam)
 
-    RidgeRegressionWithSGD.train(rdd, numIterations, stepSize, regParam)
+    rr.run(rdd)
   }
 }
 
@@ -260,8 +290,10 @@ class LassoTest(sc: SparkContext) extends RegressionTest(sc) {
   override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): LassoModel = {
     val stepSize = doubleOptionValue(STEP_SIZE)
     val regParam = doubleOptionValue(REGULARIZATION)
+    val lasso = new LinearRegressionWithSGD().setIntercept(true)
+    lasso.optimizer.setNumIterations(numIterations).setStepSize(stepSize).setRegParam(regParam)
 
-    LassoWithSGD.train(rdd, numIterations, stepSize, regParam)
+    lasso.run(rdd)
   }
 }
 

@@ -279,7 +279,7 @@ class RidgeRegressionTest(sc: SparkContext) extends RegressionTest(sc) {
   override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): RidgeRegressionModel = {
     val stepSize = doubleOptionValue(STEP_SIZE)
     val regParam = doubleOptionValue(REGULARIZATION)
-    val rr = new LinearRegressionWithSGD().setIntercept(true)
+    val rr = new RidgeRegressionWithSGD().setIntercept(true)
     rr.optimizer.setNumIterations(numIterations).setStepSize(stepSize).setRegParam(regParam)
 
     rr.run(rdd)
@@ -290,7 +290,7 @@ class LassoTest(sc: SparkContext) extends RegressionTest(sc) {
   override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): LassoModel = {
     val stepSize = doubleOptionValue(STEP_SIZE)
     val regParam = doubleOptionValue(REGULARIZATION)
-    val lasso = new LinearRegressionWithSGD().setIntercept(true)
+    val lasso = new LassoWithSGD().setIntercept(true)
     lasso.optimizer.setNumIterations(numIterations).setStepSize(stepSize).setRegParam(regParam)
 
     lasso.run(rdd)

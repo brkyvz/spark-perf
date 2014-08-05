@@ -37,25 +37,24 @@ abstract class PerfTest extends Logging {
   val stringOptions: Seq[(String, String)] = Seq()
   val booleanOptions: Seq[(String, String)] = Seq()
 
-  // add all the options to parser
-  stringOptions.map{case (opt, desc) =>
-    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[String]).required()
+  def addOptionsToParser() {
+    // add all the options to parser
+    stringOptions.map{case (opt, desc) =>
+      parser.accepts(opt, desc).withRequiredArg().ofType(classOf[String]).required()
+    }
+    booleanOptions.map{case (opt, desc) =>
+      parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Boolean]).required()
+    }
+    intOptions.map{case (opt, desc) =>
+      parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Int]).required()
+    }
+    doubleOptions.map{case (opt, desc) =>
+      parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Double]).required()
+    }
+    longOptions.map{case (opt, desc) =>
+      parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Long]).required()
+    }
   }
-  booleanOptions.map{case (opt, desc) =>
-    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Boolean]).required()
-  }
-  intOptions.map{case (opt, desc) =>
-    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Int]).required()
-  }
-
-  doubleOptions.map{case (opt, desc) =>
-    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Double]).required()
-  }
-
-  longOptions.map{case (opt, desc) =>
-    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Long]).required()
-  }
-
 
   def intOptionValue(option: (String, String)) = optionSet.valueOf(option._1).asInstanceOf[Int]
 

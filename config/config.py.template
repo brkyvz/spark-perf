@@ -226,7 +226,7 @@ MLLIB_REGRESSION_TEST_OPTS = MLLIB_REGRESSION_CLASSIFICATION_TEST_OPTS + [
 ]
 
 #MLLIB_TESTS += [("linear-regression", "mllib.perf.TestRunner", SCALE_FACTOR,
-#    COMMON_JAVA_OPTS, [ConstantOption("linear-regression”), OptionSet("reg-param", [0.0])] +
+#    COMMON_JAVA_OPTS, [ConstantOption("linear-regression"), OptionSet("reg-param", [0.0])] +
 #    MLLIB_REGRESSION_TEST_OPTS)]
 
 #MLLIB_TESTS += [("lasso", "mllib.perf.TestRunner", SCALE_FACTOR,
@@ -240,7 +240,7 @@ MLLIB_REGRESSION_TEST_OPTS = MLLIB_REGRESSION_CLASSIFICATION_TEST_OPTS + [
 # Classification Tests #
 MLLIB_CLASSIFICATION_TEST_OPTS = MLLIB_REGRESSION_CLASSIFICATION_TEST_OPTS + [
      # The intercept for the data
-     OptionSet("threshold", [0.3]),
+     OptionSet("per-negative", [0.3]),
      # The scale factor for the noise
      OptionSet("scale-factor", [1.0]),
      # Naive Bayes smoothing lambda

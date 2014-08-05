@@ -63,7 +63,7 @@ abstract class RegressionTest(sc: SparkContext) extends RegressionAndClassificat
   doubleOptions = doubleOptions ++ Seq(INTERCEPT, EPS)
 
   val options = intOptions ++ stringOptions  ++ booleanOptions ++ doubleOptions ++ longOptions
-
+  addOptionsToParser()
   override def createInputData() = {
     val numExamples: Long = longOptionValue(NUM_EXAMPLES)
     val numFeatures: Int = intOptionValue(NUM_FEATURES)
@@ -103,7 +103,7 @@ abstract class ClassificationTest(sc: SparkContext) extends RegressionAndClassif
   doubleOptions = doubleOptions ++ Seq(THRESHOLD, SCALE, SMOOTHING)
 
   val options = intOptions ++ stringOptions  ++ booleanOptions ++ doubleOptions ++ longOptions
-
+  addOptionsToParser()
 
   override def createInputData() = {
     val numExamples: Long = longOptionValue(NUM_EXAMPLES)
@@ -145,13 +145,10 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
   val NUM_RATINGS =   ("num-ratings",   "number of ratings for recommendation tests")
   val RANK =          ("rank", "rank of factorized matrices for recommendation tests")
 
-  //override val intOptions = Seq(NUM_TRIALS, INTER_TRIAL_WAIT, NUM_PARTITIONS, RANDOM_SEED,
-  //  NUM_ITERATIONS, NUM_USERS, NUM_PRODUCTS, NUM_RATINGS, RANK)
-  val options = intOptions ++ stringOptions  ++ booleanOptions
-
-  intOptions.map{case (opt, desc) =>
-    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Int]).required()
-  }
+  intOptions = intOptions ++ Seq(NUM_USERS, NUM_PRODUCTS, RANK)
+  longOptions = longOptions ++ Seq(NUM_RATINGS)
+  val options = intOptions ++ stringOptions  ++ booleanOptions ++ longOptions ++ doubleOptions
+  addOptionsToParser()
 
   var rdd: RDD[Rating] = _
 
@@ -198,20 +195,17 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
   val NUM_COLUMNS =   ("num-columns",   "number of columns for each point for clustering tests")
   val NUM_CENTERS =   ("num-centers",   "number of centers for clustering tests")
 
-  //override val intOptions = Seq(NUM_TRIALS, INTER_TRIAL_WAIT, NUM_PARTITIONS, RANDOM_SEED,
-  //  NUM_ITERATIONS, NUM_POINTS, NUM_CENTERS, NUM_COLUMNS)
-  val options = intOptions ++ stringOptions  ++ booleanOptions
-
-  intOptions.map{case (opt, desc) =>
-    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Int]).required()
-  }
+  intOptions = intOptions ++ Seq(NUM_CENTERS, NUM_COLUMNS)
+  longOptions = longOptions ++ Seq(NUM_POINTS)
+  val options = intOptions ++ stringOptions  ++ booleanOptions ++ longOptions ++ doubleOptions
+  addOptionsToParser()
 
   var rdd: RDD[Vector] = _
 
   override def createInputData() = {
     val numPartitions: Int = intOptionValue(NUM_PARTITIONS)
     val randomSeed: Int = intOptionValue(RANDOM_SEED)
-    val numPoints: Long = intOptionValue(NUM_POINTS).toLong
+    val numPoints: Long = longOptionValue(NUM_POINTS)
     val numColumns: Int = intOptionValue(NUM_COLUMNS)
 
     rdd = DataGenerator.generateVectors(sc, numPoints, numColumns, numPartitions, randomSeed).cache()

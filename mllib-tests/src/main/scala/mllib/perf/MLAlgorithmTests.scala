@@ -34,7 +34,7 @@ abstract class RegressionAndClassificationTests(sc: SparkContext) extends PerfTe
   var rdd: RDD[LabeledPoint] = _
   var testRdd: RDD[LabeledPoint] = _
 
-  override def run(): Seq[(Double, Double)] = {
+  override def run(): Seq[(Double, Double, Double)] = {
     val numTrials = intOptionValue(NUM_TRIALS)
     val numIterations = intOptionValue(NUM_ITERATIONS)
     val interTrialWait = intOptionValue(INTER_TRIAL_WAIT)
@@ -44,11 +44,11 @@ abstract class RegressionAndClassificationTests(sc: SparkContext) extends PerfTe
       val model = runTest(rdd, numIterations)
       val end = System.currentTimeMillis()
       val time = (end - start).toDouble / 1000.0
-
+      val metricOnTrain = validate(model, rdd)
       val metric = validate(model, testRdd)
       System.gc()
       Thread.sleep(interTrialWait * 1000)
-      (time, metric)
+      (time, metricOnTrain, metric)
     }
 
     result
@@ -170,7 +170,7 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
 
   }
 
-  override def run(): Seq[(Double, Double)] = {
+  override def run(): Seq[(Double, Double, Double)] = {
     val numTrials = intOptionValue(NUM_TRIALS)
     val interTrialWait: Int = intOptionValue(INTER_TRIAL_WAIT)
     val numIterations: Int = intOptionValue(NUM_ITERATIONS)
@@ -184,7 +184,7 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
       System.gc()
       Thread.sleep(interTrialWait * 1000)
       // TODO: Dummy 1.0 for now
-      (time, 1.0)
+      (time, 1.0, 1.0)
     }
 
     result
@@ -218,7 +218,7 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
     println("Num Examples: " + rdd.count())
   }
 
-  override def run(): Seq[(Double, Double)] = {
+  override def run(): Seq[(Double, Double, Double)] = {
     val numTrials = intOptionValue(NUM_TRIALS)
     val interTrialWait: Int = intOptionValue(INTER_TRIAL_WAIT)
     val numIterations: Int = intOptionValue(NUM_ITERATIONS)
@@ -232,7 +232,7 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
       System.gc()
       Thread.sleep(interTrialWait * 1000)
       // TODO: Dummy 1.0 for now
-      (time, 1.0)
+      (time, 1.0, 1.0)
     }
 
     result

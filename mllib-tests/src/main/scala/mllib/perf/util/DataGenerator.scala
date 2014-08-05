@@ -112,7 +112,7 @@ class LinearDataGenerator(val numFeatures: Int,
   private val weights = Array.fill(numFeatures)(rng.nextDouble())
 
   override def nextValue(): LabeledPoint = {
-    val x = Array.fill[Double](numFeatures)(rng.nextDouble())
+    val x = Array.fill[Double](numFeatures)(2*rng.nextDouble()-1)
     val y = weights.zip(x).map(p => p._1 * p._2).sum + intercept + eps*rng.nextGaussian()
 
     LabeledPoint(y, Vectors.dense(x))

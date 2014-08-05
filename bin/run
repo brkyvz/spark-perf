@@ -399,7 +399,8 @@ def process_mllib_output(short_name, opt_list, stdout_filename, stderr_filename)
     result_string = "%s, %s\n" % (short_name, " ".join(opt_list))
 
     result_string += "Runtime: %s, %.3f, %s, %s, %s\n" % stats_for_results([x.split(";")[0] for x in result_list])
-    result_string += "Metric: %s, %.3f, %s, %s, %s" % stats_for_results([x.split(";")[1] for x in result_list])
+    result_string += "Train Set Metric: %s, %.3f, %s, %s, %s" % stats_for_results([x.split(";")[1] for x in result_list])
+    result_string += "Test Set Metric: %s, %.3f, %s, %s, %s" % stats_for_results([x.split(";")[2] for x in result_list])
 
     sys.stdout.flush()
     return result_string

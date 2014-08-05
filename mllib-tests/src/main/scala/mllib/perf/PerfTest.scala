@@ -22,7 +22,7 @@ abstract class PerfTest extends Logging {
   def createInputData()
 
   /** Runs the test and returns a series of results, along with values of any parameters */
-  def run(): Seq[(Double, Double)]
+  def run(): Seq[(Double, Double, Double)]
 
   val parser = new OptionParser()
   var optionSet: OptionSet = _

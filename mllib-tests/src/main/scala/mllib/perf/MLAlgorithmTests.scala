@@ -21,14 +21,14 @@ abstract class RegressionAndClassificationTests(sc: SparkContext) extends PerfTe
 
   def runTest(rdd: RDD[LabeledPoint], numIterations: Int): GeneralizedLinearModel
 
-  def validate(model: GeneralizedLinearModel, rdd: RDD[LabeledPoint])
+  def validate(model: GeneralizedLinearModel, rdd: RDD[LabeledPoint]): Double
 
   val NUM_EXAMPLES =  ("num-examples",   "number of examples for regression tests")
   val NUM_FEATURES =  ("num-features",   "number of features of each example for regression tests")
   val STEP_SIZE =     ("step-size",   "step size for SGD")
 
   intOptions = intOptions ++ Seq(NUM_FEATURES)
-  val longOptions = Seq(NUM_EXAMPLES)
+  longOptions = Seq(NUM_EXAMPLES)
   doubleOptions = doubleOptions ++ Seq(STEP_SIZE)
 
   var rdd: RDD[LabeledPoint] = _
@@ -84,10 +84,11 @@ abstract class RegressionTest(sc: SparkContext) extends RegressionAndClassificat
     println("Num Examples: " + rdd.count())
   }
 
-  override def validate(model: GeneralizedLinearModel, rdd: RDD[(Double, Vector)]): Double = {
-    val predictions = model.predict(rdd.map(_._2))
-
-    predictions.zip(rdd.map(_._1)).map{case (pred, label) =>
+  override def validate(model: GeneralizedLinearModel, rdd: RDD[LabeledPoint]): Double = {
+    val predictions: RDD[(Double, Double)] = rdd.map { example =>
+      (model.predict(example.features), example.label)
+    }
+    predictions.map{case (pred, label) =>
       (pred-label) * (pred-label)
     }.reduce(_ + _) / predictions.count()
   }
@@ -124,11 +125,12 @@ abstract class ClassificationTest(sc: SparkContext) extends RegressionAndClassif
     println("Num Examples: " + rdd.count())
   }
 
-  override def validate(model: GeneralizedLinearModel, rdd: RDD[(Double, Vector)]): Double = {
-    val predictions = model.predict(rdd.map(_._2))
-
-    predictions.zip(rdd.map(_._1)).map{case (pred, label) =>
-      pred ^ label ^ 1.0
+  override def validate(model: GeneralizedLinearModel, rdd: RDD[LabeledPoint]): Double = {
+    val predictions: RDD[(Double, Double)] = rdd.map { example =>
+      (model.predict(example.features), example.label)
+    }
+    predictions.map{case (pred, label) =>
+      pred.toByte ^ label.toByte ^ 1
     }.reduce(_ + _) * 100.0 / predictions.count()
   }
 
@@ -143,8 +145,8 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
   val NUM_RATINGS =   ("num-ratings",   "number of ratings for recommendation tests")
   val RANK =          ("rank", "rank of factorized matrices for recommendation tests")
 
-  val intOptions = Seq(NUM_TRIALS, INTER_TRIAL_WAIT, NUM_PARTITIONS, RANDOM_SEED,
-    NUM_ITERATIONS, NUM_USERS, NUM_PRODUCTS, NUM_RATINGS, RANK)
+  //override val intOptions = Seq(NUM_TRIALS, INTER_TRIAL_WAIT, NUM_PARTITIONS, RANDOM_SEED,
+  //  NUM_ITERATIONS, NUM_USERS, NUM_PRODUCTS, NUM_RATINGS, RANK)
   val options = intOptions ++ stringOptions  ++ booleanOptions
 
   intOptions.map{case (opt, desc) =>
@@ -167,7 +169,7 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
 
   }
 
-  override def run(): Seq[Double] = {
+  override def run(): Seq[(Double, Double)] = {
     val numTrials = intOptionValue(NUM_TRIALS)
     val interTrialWait: Int = intOptionValue(INTER_TRIAL_WAIT)
     val numIterations: Int = intOptionValue(NUM_ITERATIONS)
@@ -180,7 +182,8 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
       val time = (end - start).toDouble / 1000.0
       System.gc()
       Thread.sleep(interTrialWait * 1000)
-      time
+      // TODO: Dummy 1.0 for now
+      (time, 1.0)
     }
 
     result
@@ -195,8 +198,8 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
   val NUM_COLUMNS =   ("num-columns",   "number of columns for each point for clustering tests")
   val NUM_CENTERS =   ("num-centers",   "number of centers for clustering tests")
 
-  val intOptions = Seq(NUM_TRIALS, INTER_TRIAL_WAIT, NUM_PARTITIONS, RANDOM_SEED,
-    NUM_ITERATIONS, NUM_POINTS, NUM_CENTERS, NUM_COLUMNS)
+  //override val intOptions = Seq(NUM_TRIALS, INTER_TRIAL_WAIT, NUM_PARTITIONS, RANDOM_SEED,
+  //  NUM_ITERATIONS, NUM_POINTS, NUM_CENTERS, NUM_COLUMNS)
   val options = intOptions ++ stringOptions  ++ booleanOptions
 
   intOptions.map{case (opt, desc) =>
@@ -217,7 +220,7 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
     println("Num Examples: " + rdd.count())
   }
 
-  override def run(): Seq[Double] = {
+  override def run(): Seq[(Double, Double)] = {
     val numTrials = intOptionValue(NUM_TRIALS)
     val interTrialWait: Int = intOptionValue(INTER_TRIAL_WAIT)
     val numIterations: Int = intOptionValue(NUM_ITERATIONS)
@@ -230,7 +233,8 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
       val time = (end - start).toDouble / 1000.0
       System.gc()
       Thread.sleep(interTrialWait * 1000)
-      time
+      // TODO: Dummy 1.0 for now
+      (time, 1.0)
     }
 
     result
@@ -239,14 +243,14 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
 
 // Regression Algorithms
 class LinearRegressionTest(sc: SparkContext) extends RegressionTest(sc) {
-  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int) {
+  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): LinearRegressionModel = {
     val stepSize = doubleOptionValue(STEP_SIZE)
     LinearRegressionWithSGD.train(rdd, numIterations, stepSize)
   }
 }
 
 class RidgeRegressionTest(sc: SparkContext) extends RegressionTest(sc) {
-  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int) {
+  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): RidgeRegressionModel = {
     val stepSize = doubleOptionValue(STEP_SIZE)
     val regParam = doubleOptionValue(REGULARIZATION)
 
@@ -255,7 +259,7 @@ class RidgeRegressionTest(sc: SparkContext) extends RegressionTest(sc) {
 }
 
 class LassoTest(sc: SparkContext) extends RegressionTest(sc) {
-  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int) {
+  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): LassoModel = {
     val stepSize = doubleOptionValue(STEP_SIZE)
     val regParam = doubleOptionValue(REGULARIZATION)
 
@@ -265,23 +269,23 @@ class LassoTest(sc: SparkContext) extends RegressionTest(sc) {
 
 // Classification Algorithms
 class LogisticRegressionTest(sc: SparkContext) extends ClassificationTest(sc) {
-  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int) {
+  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): LogisticRegressionModel = {
     val stepSize = doubleOptionValue(STEP_SIZE)
 
     LogisticRegressionWithSGD.train(rdd, numIterations, stepSize)
   }
 }
-
+/*
 class NaiveBayesTest(sc: SparkContext) extends ClassificationTest(sc) {
-  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int) {
+  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): NaiveBayesModel = {
     val lambda = doubleOptionValue(SMOOTHING)
 
     NaiveBayes.train(rdd, lambda)
   }
 }
-
+*/
 class SVMTest(sc: SparkContext) extends ClassificationTest(sc) {
-  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int) {
+  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): SVMModel = {
     val stepSize = doubleOptionValue(STEP_SIZE)
     val regParam = doubleOptionValue(REGULARIZATION)
 

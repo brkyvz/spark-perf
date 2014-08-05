@@ -27,9 +27,9 @@ object DataGenerator {
   def generateClassificationLabeledPoints( sc: SparkContext,
                              numRows: Long,
                              numCols: Int,
-                             numPartitions: Int,
                              threshold: Double,
                              scaleFactor: Double,
+                             numPartitions: Int,
                              seed: Long = System.currentTimeMillis()): RDD[LabeledPoint] = {
 
     RandomRDDGenerators.randomRDD(sc, new ClassLabelGenerator(numCols,threshold, scaleFactor), numRows, numPartitions, seed)
@@ -58,10 +58,9 @@ object DataGenerator {
 }
 
 class RatingGenerator(val numUsers: Int,
-                      val numProducts: Int,
-                      val seed: Long) extends RandomDataGenerator[Rating] {
+                      val numProducts: Int) extends RandomDataGenerator[Rating] {
 
-  private val rng = new java.util.Random(seed)
+  private val rng = new java.util.Random()
   private val observed = new mutable.HashMap[(Int, Int), Boolean]()
 
   override def nextValue(): Rating = {
@@ -81,16 +80,16 @@ class RatingGenerator(val numUsers: Int,
   override def copy(): RatingGenerator = new RatingGenerator(numUsers, numProducts)
 }
 
-class ClassLabelGenerator(val numFeatures: Int,
-                          val threshold: Double,
-                          val scaleFactor: Double) extends RandomDataGenerator[LabeledPoint] {
+class ClassLabelGenerator(private val numFeatures: Int,
+                          private val threshold: Double,
+                          private val scaleFactor: Double) extends RandomDataGenerator[LabeledPoint] {
 
   private val rng = new java.util.Random()
 
   override def nextValue(): LabeledPoint = {
     val y = if (rng.nextDouble() < threshold) 0.0 else 1.0
     val x = Array.fill[Double](numFeatures) {
-      rnd.nextGaussian() + (y * scaleFactor)
+      rng.nextGaussian() + (y * scaleFactor)
     }
 
     LabeledPoint(y, Vectors.dense(x))
@@ -123,5 +122,5 @@ class LinearDataGenerator(val numFeatures: Int,
     rng.setSeed(seed)
   }
 
-  override def copy(): ClassLabelGenerator = new ClassLabelGenerator(numFeatures, threshold, scaleFactor)
+  override def copy(): LinearDataGenerator = new LinearDataGenerator(numFeatures, intercept, seed, eps)
 }

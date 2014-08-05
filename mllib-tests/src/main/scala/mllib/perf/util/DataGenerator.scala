@@ -7,6 +7,7 @@ import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext
 
+
 import scala.collection.mutable
 
 object DataGenerator {
@@ -61,7 +62,7 @@ object DataGenerator {
 class RatingGenerator(val numUsers: Int,
                       val numProducts: Int) extends RandomDataGenerator[Rating] {
 
-  private val rng = new scala.util.Random()
+  private val rng = new java.util.Random()
   private val observed = new mutable.HashMap[(Int, Int), Boolean]()
 
   override def nextValue(): Rating = {
@@ -83,9 +84,9 @@ class RatingGenerator(val numUsers: Int,
 
 class ClassLabelGenerator extends RandomDataGenerator[Double] {
 
-  private val rng = new scala.util.Random()
+  private val rng = new java.util.Random()
 
-  override def nextValue(): Double = if (rng.nextBoolean()) 1.0 else -1.0
+  override def nextValue(): Double = if (rng.nextBoolean()) 1.0 else 0.0
 
   override def setSeed(seed: Long) {
     rng.setSeed(seed)

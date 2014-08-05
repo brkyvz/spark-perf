@@ -251,7 +251,7 @@ MLLIB_RECOMMENDATION_TEST_OPTS = MLLIB_COMMON_OPTS + [
      # The number of products
      OptionSet("num-products", [500000], can_scale=True),
      # The number of ratings
-     OptionSet("num-products", [10000000], can_scale=True),
+     OptionSet("num-ratings", [10000000], can_scale=True),
      # The number of iterations for ALS
      OptionSet("num-iterations", [20]),
      # The rank of the factorized matrix model

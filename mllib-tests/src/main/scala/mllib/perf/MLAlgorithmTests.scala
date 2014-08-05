@@ -60,8 +60,10 @@ abstract class RegressionTest(sc: SparkContext) extends RegressionAndClassificat
     val numPartitions: Int = intOptionValue(NUM_PARTITIONS)
     val randomSeed: Int = intOptionValue(RANDOM_SEED)
 
-    rdd = DataGenerator.generateLabeledPoints(sc, numExamples,
-      numFeatures, numPartitions,randomSeed)
+    rdd = DataGenerator.generateLabeledPoints(sc, numExamples, numFeatures, numPartitions,randomSeed).cache()
+
+    // Materialize rdd
+    println("Num Examples: " + rdd.count())
   }
 }
 
@@ -72,8 +74,10 @@ abstract class ClassificationTest(sc: SparkContext) extends RegressionAndClassif
     val numPartitions: Int = intOptionValue(NUM_PARTITIONS)
     val randomSeed: Int = intOptionValue(RANDOM_SEED)
 
-    rdd = DataGenerator.generateClassificationLabeledPoints(sc, numExamples,
-      numFeatures, numPartitions,randomSeed)
+    rdd = DataGenerator.generateClassificationLabeledPoints(sc, numExamples, numFeatures, numPartitions,randomSeed).cache()
+
+    // Materialize rdd
+    println("Num Examples: " + rdd.count())
   }
 }
 
@@ -103,7 +107,10 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
     val numProducts: Int = intOptionValue(NUM_PRODUCTS)
     val numRatings: Long = intOptionValue(NUM_RATINGS).toLong
 
-    rdd = DataGenerator.generateRatings(sc, numUsers, numProducts, numRatings, numPartitions,randomSeed)
+    rdd = DataGenerator.generateRatings(sc, numUsers, numProducts, numRatings, numPartitions,randomSeed).cache()
+
+    // Materialize rdd
+    println("Num Examples: " + rdd.count())
 
   }
 
@@ -136,7 +143,7 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
   val NUM_CENTERS =   ("num-centers",   "number of centers for clustering tests")
 
   val intOptions = Seq(NUM_TRIALS, INTER_TRIAL_WAIT, NUM_PARTITIONS, RANDOM_SEED,
-    NUM_ITERATIONS, NUM_POINTS, NUM_CENTERS)
+    NUM_ITERATIONS, NUM_POINTS, NUM_CENTERS, NUM_COLUMNS)
   val options = intOptions ++ stringOptions  ++ booleanOptions
 
   intOptions.map{case (opt, desc) =>
@@ -151,7 +158,10 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
     val numPoints: Long = intOptionValue(NUM_POINTS).toLong
     val numColumns: Int = intOptionValue(NUM_COLUMNS)
 
-    rdd = DataGenerator.generateVectors(sc, numPoints, numColumns, numPartitions, randomSeed)
+    rdd = DataGenerator.generateVectors(sc, numPoints, numColumns, numPartitions, randomSeed).cache()
+
+    // Materialize rdd
+    println("Num Examples: " + rdd.count())
   }
 
   override def run(): Seq[Double] = {

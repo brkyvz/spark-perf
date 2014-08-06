@@ -48,13 +48,12 @@ object DataGenerator {
     RandomRDDGenerators.randomRDD(sc, new KMeansDataGenerator(numCenters, numCols, seed), numRows, numPartitions, seed)
   }
 
-  // TODO: Smart generation of synthetic data
   def generateRatings( sc: SparkContext,
                        numUsers: Int,
                        numProducts: Int,
                        numRatings: Long,
                        numPartitions: Int,
-                       seed: Long = System.currentTimeMillis()): RDD[Rating] = {
+                       seed: Long = System.currentTimeMillis()): RDD[(Int, Rating)] = {
 
     RandomRDDGenerators.randomRDD(sc, new RatingGenerator(numUsers, numProducts), numRatings, numPartitions, seed)
   }
@@ -63,19 +62,19 @@ object DataGenerator {
 }
 
 class RatingGenerator(val numUsers: Int,
-                      val numProducts: Int) extends RandomDataGenerator[Rating] {
+                      val numProducts: Int) extends RandomDataGenerator[(Int, Rating)] {
 
   private val rng = new java.util.Random()
   private val observed = new mutable.HashMap[(Int, Int), Boolean]()
 
-  override def nextValue(): Rating = {
+  override def nextValue(): (Int, Rating) = {
     var tuple: (Int, Int) = (0,0)
     do {
       tuple = (rng.nextInt(numUsers),rng.nextInt(numProducts))
     }while(observed.getOrElse(tuple, false))
     observed += (tuple -> true)
 
-    new Rating(tuple._1, tuple._2, (rng.nextInt(5)+1)*1.0)
+    (rng.nextInt(10), new Rating(tuple._1, tuple._2, (rng.nextInt(5)+1)*1.0))
   }
 
   override def setSeed(seed: Long) {

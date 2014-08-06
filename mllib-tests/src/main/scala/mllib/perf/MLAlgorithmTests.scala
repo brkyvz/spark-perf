@@ -186,15 +186,29 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
     val randomSeed: Int = intOptionValue(RANDOM_SEED)
     val numUsers: Int = intOptionValue(NUM_USERS)
     val numProducts: Int = intOptionValue(NUM_PRODUCTS)
-    val numRatings: Long = intOptionValue(NUM_RATINGS).toLong
+    val numRatings: Long = longOptionValue(NUM_RATINGS)
 
     val data = DataGenerator.generateRatings(sc, numUsers, numProducts, math.ceil(numRatings*1.25).toLong,
       numPartitions,randomSeed)
 
-    val split = data.randomSplit(Array(0.8, 0.2), randomSeed)
+    val maxUser = data.map{case (id, rating) => rating.user}.max()
+    val maxProd = data.map{case (id, rating) => rating.product}.max()
 
-    rdd = split(0).cache()
-    testRdd = split(1)
+    rdd = data.filter{case (id,rating) =>
+      if (rating.user == maxUser || rating.product == maxProd) {
+        true
+      }else {
+        id <= 0.8
+      }
+    }.map(_._2).cache()
+
+    testRdd = data.filter{case (id,rating) =>
+      if (rating.user == maxUser || rating.product == maxProd) {
+        false
+      }else {
+        id > 0.8
+      }
+    }.map(_._2)
 
     // Materialize rdd
     println("Num Examples: " + rdd.count())

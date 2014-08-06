@@ -42,6 +42,9 @@ abstract class PerfTest extends Logging {
   def intOptionValue(option: (String, String)) =
     optionSet.valueOf(option._1).asInstanceOf[Int]
 
+  def doubleOptionValue(option: (String, String)) =
+    optionSet.valueOf(option._1).asInstanceOf[Double]
+
   def stringOptionValue(option: (String, String)) =
     optionSet.valueOf(option._1).asInstanceOf[String]
 

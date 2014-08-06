@@ -9,9 +9,9 @@ import org.apache.spark.mllib.linalg._
 import org.apache.spark.mllib.recommendation.{ALS, Rating}
 import org.apache.spark.mllib.classification._
 import org.apache.spark.mllib.tree.DecisionTree
-import org.apache.spark.mllib.tree.configuration.Strategy
 import org.apache.spark.mllib.tree.configuration.Algo._
-import org.apache.spark.mllib.tree.impurity.Gini
+import org.apache.spark.mllib.tree.configuration.QuantileStrategy
+import org.apache.spark.mllib.tree.impurity._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext
 
@@ -78,6 +78,59 @@ abstract class ClassificationTest(sc: SparkContext) extends RegressionAndClassif
 
     // Materialize rdd
     println("Num Examples: " + rdd.count())
+  }
+}
+
+/**
+ * Parent class for tests which run on a large dataset.
+ *
+ * This class is specific to [[org.apache.spark.mllib.tree.DecisionTree]].
+ * It should eventually be generalized and merged with [[mllib.perf.RegressionAndClassificationTests]]
+ */
+abstract class DecisionTreeTests(sc: SparkContext) extends PerfTest {
+
+  def runTest(rdd: RDD[LabeledPoint])
+
+  val NUM_EXAMPLES = ("num-examples",   "number of examples for regression tests")
+  val NUM_FEATURES = ("num-features",   "number of features of each example for regression tests")
+  val LABEL_TYPE =
+    ("label-type", "Type of label: 0 indicates regression, 2+ indicates classification with this many classes")
+  val FRAC_CATEGORICAL_FEATURES = ("frac-categorical-features", "Fraction of features which are categorical")
+  val FRAC_BINARY_FEATURES =
+    ("frac-binary-features", "Fraction of categorical features which are binary. Others have 20 categories.")
+  val TREE_DEPTH = ("tree-depth", "Depth of true decision tree model used to label examples.")
+  val MAX_BINS = ("max-bins", "Maximum number of bins for the decision tree learning algorithm.")
+
+  val intOptions: Seq[(String, String)] = Seq(NUM_TRIALS, INTER_TRIAL_WAIT, NUM_PARTITIONS, RANDOM_SEED,
+    NUM_EXAMPLES, NUM_FEATURES, LABEL_TYPE, TREE_DEPTH, MAX_BINS)
+  val doubleOptions: Seq[(String, String)] = Seq(FRAC_CATEGORICAL_FEATURES, FRAC_BINARY_FEATURES)
+  val options = intOptions ++ stringOptions ++ booleanOptions ++ doubleOptions
+
+  intOptions.map{case (opt, desc) =>
+    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Int]).required()
+  }
+  doubleOptions.map{case (opt, desc) =>
+    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Double]).required()
+  }
+
+  var rdd: RDD[LabeledPoint] = _
+  var categoricalFeaturesInfo: Map[Int, Int] = Map.empty
+
+  override def run(): Seq[Double] = {
+    val numTrials = intOptionValue(NUM_TRIALS)
+    val interTrialWait = intOptionValue(INTER_TRIAL_WAIT)
+
+    val result = (1 to numTrials).map { t =>
+      val start = System.currentTimeMillis()
+      runTest(rdd)
+      val end = System.currentTimeMillis()
+      val time = (end - start).toDouble / 1000.0
+      System.gc()
+      Thread.sleep(interTrialWait * 1000)
+      time
+    }
+
+    result
   }
 }
 
@@ -222,13 +275,50 @@ class SVMTest(sc: SparkContext) extends ClassificationTest(sc) {
   }
 }
 
-// TODO: Joseph, it might be best to create a separate class than ClassificationTest to get more parameters in for Strategy
-// Decision Trees
-class DecisionTreeTest(sc: SparkContext) extends ClassificationTest(sc) {
-  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int) {
-    DecisionTree.train(rdd,new Strategy(Classification, Gini, 4))
+
+class DecisionTreeTest(sc: SparkContext) extends DecisionTreeTests(sc) {
+
+  override def createInputData() = {
+    // Generic test options
+    val randomSeed: Int = intOptionValue(RANDOM_SEED)
+    val numPartitions: Int = intOptionValue(NUM_PARTITIONS)
+    // Data dimensions and type
+    val numExamples: Long = intOptionValue(NUM_EXAMPLES).toLong
+    val numFeatures: Int = intOptionValue(NUM_FEATURES)
+    val labelType: Int = intOptionValue(LABEL_TYPE)
+    val fracCategoricalFeatures: Double = doubleOptionValue(FRAC_CATEGORICAL_FEATURES)
+    val fracBinaryFeatures: Double = doubleOptionValue(FRAC_BINARY_FEATURES)
+    // Model specification
+    val treeDepth: Int = intOptionValue(TREE_DEPTH)
+
+    val (rdd_, categoricalFeaturesInfo_) =
+      DataGenerator.generateDecisionTreeLabeledPoints(sc, numExamples, numFeatures, numPartitions,
+        labelType, fracCategoricalFeatures, fracBinaryFeatures, treeDepth, randomSeed)
+    rdd = rdd_.cache()
+    categoricalFeaturesInfo = categoricalFeaturesInfo_
+
+    // Materialize rdd
+    println("Num Examples: " + rdd.count())
+  }
+
+  override def runTest(rdd: RDD[LabeledPoint]) {
+    val labelType: Int = intOptionValue(LABEL_TYPE)
+    val treeDepth: Int = intOptionValue(TREE_DEPTH)
+    val maxBins: Int = intOptionValue(MAX_BINS)
+    if (labelType == 0) {
+      // Regression
+      DecisionTree.train(rdd, Regression, Variance, treeDepth, 0, maxBins, QuantileStrategy.Sort,
+        categoricalFeaturesInfo)
+    } else if (labelType >= 2) {
+      // Classification
+      DecisionTree.train(rdd, Classification, Gini, treeDepth, labelType, maxBins, QuantileStrategy.Sort,
+        categoricalFeaturesInfo)
+    } else {
+      throw new IllegalArgumentException(s"Bad label-type parameter given to DecisionTreeTest: $labelType")
+    }
   }
 }
+
 
 // Recommendation
 class ALSTest(sc: SparkContext) extends RecommendationTests(sc) {

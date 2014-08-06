@@ -56,13 +56,14 @@ object DataGenerator {
                        numUsers: Int,
                        numProducts: Int,
                        numRatings: Long,
+                       implicitPrefs: Boolean,
                        numPartitions: Int,
                        seed: Long = System.currentTimeMillis()): (RDD[Rating],RDD[Rating]) = {
 
-    val train = RandomRDDGenerators.randomRDD(sc, new RatingGenerator(numUsers, numProducts),
+    val train = RandomRDDGenerators.randomRDD(sc, new RatingGenerator(numUsers, numProducts,implicitPrefs),
        numRatings, numPartitions, seed).cache()
 
-    val test = RandomRDDGenerators.randomRDD(sc, new RatingGenerator(numUsers, numProducts),
+    val test = RandomRDDGenerators.randomRDD(sc, new RatingGenerator(numUsers, numProducts,implicitPrefs),
       math.ceil(numRatings*0.25).toLong, numPartitions, seed+24)
 
 
@@ -84,6 +85,8 @@ object DataGenerator {
     val testUsers: PairRDDFunctions[Int,Rating] = new PairRDDFunctions(test.keyBy(rating => rating.user))
     val testWithAdditionalUsers = testUsers.subtractByKey(trainUsers)
     println("Different Users: " + testWithAdditionalUsers.count())
+    println("Distinct Users Train: " + trainUsers.map(_._1).distinct().count())
+    println("Distinct Users Test: " + testUsers.keys.distinct().count())
 
     val userPrunedTestProds: RDD[(Int,Rating)] = testUsers.subtractByKey(testWithAdditionalUsers).map(_._2).keyBy(rating => rating.product)
     println("After Count: " + userPrunedTestProds.count())
@@ -92,6 +95,8 @@ object DataGenerator {
 
     val testWithAdditionalProds = new PairRDDFunctions[Int, Rating](userPrunedTestProds).subtractByKey(trainProds)
     println("Different Products: " + testWithAdditionalProds.count())
+    println("Distinct Prods Train: " + trainProds.map(_._1).distinct().count())
+    println("Distinct Prods Test: " + userPrunedTestProds.map(_._1).distinct().count())
 
     val finalTest = new PairRDDFunctions[Int, Rating](userPrunedTestProds).subtractByKey(testWithAdditionalProds).map(_._2)
     println("Final test count: " + finalTest.count())
@@ -103,8 +108,9 @@ object DataGenerator {
 }
 
 // For general classification
-class RatingGenerator(private val numUsers: Int,
-                      private val numProducts: Int) extends RandomDataGenerator[Rating] {
+class RatingGenerator( private val numUsers: Int,
+                       private val numProducts: Int,
+                       private val implicitPrefs: Boolean) extends RandomDataGenerator[Rating] {
 
   private val rng = new java.util.Random()
 
@@ -117,14 +123,16 @@ class RatingGenerator(private val numUsers: Int,
     }
     observed += (tuple -> true)
 
-    new Rating(tuple._1, tuple._2, rng.nextDouble()*5)
+    val rating = if (implicitPrefs) rng.nextInt(2)*1.0 else rng.nextDouble()*5
+
+    new Rating(tuple._1, tuple._2, rating)
   }
 
   override def setSeed(seed: Long) {
     rng.setSeed(seed)
   }
 
-  override def copy(): RatingGenerator = new RatingGenerator(numUsers, numProducts)
+  override def copy(): RatingGenerator = new RatingGenerator(numUsers, numProducts, implicitPrefs)
 }
 
 

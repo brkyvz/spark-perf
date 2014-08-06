@@ -35,7 +35,7 @@ abstract class PerfTest extends Logging {
   var longOptions: Seq[(String, String)] = Seq()
 
   val stringOptions: Seq[(String, String)] = Seq()
-  val booleanOptions: Seq[(String, String)] = Seq()
+  var booleanOptions: Seq[(String, String)] = Seq()
 
   def addOptionsToParser() {
     // add all the options to parser
@@ -43,7 +43,7 @@ abstract class PerfTest extends Logging {
       parser.accepts(opt, desc).withRequiredArg().ofType(classOf[String]).required()
     }
     booleanOptions.map{case (opt, desc) =>
-      parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Boolean]).required()
+      parser.accepts(opt, desc)
     }
     intOptions.map{case (opt, desc) =>
       parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Int]).required()
@@ -60,7 +60,7 @@ abstract class PerfTest extends Logging {
 
   def stringOptionValue(option: (String, String)) = optionSet.valueOf(option._1).asInstanceOf[String]
 
-  def booleanOptionValue(option: (String, String)) = optionSet.valueOf(option._1).asInstanceOf[Boolean]
+  def booleanOptionValue(option: (String, String)) = optionSet.has(option._1)
 
   def doubleOptionValue(option: (String, String)) = optionSet.valueOf(option._1).asInstanceOf[Double]
 

@@ -281,7 +281,9 @@ MLLIB_RECOMMENDATION_TEST_OPTS = MLLIB_COMMON_OPTS + [
      # The rank of the factorized matrix model
      OptionSet("rank", [20]),
      # The regularization parameter
-     OptionSet("reg-param", [1.0])
+     OptionSet("reg-param", [1.0]),
+     # Whether to use implicit preferences or not
+     FlagSet("implicit-prefs", [False])
 ]
 
 #MLLIB_TESTS += [("als", "mllib.perf.TestRunner", SCALE_FACTOR,

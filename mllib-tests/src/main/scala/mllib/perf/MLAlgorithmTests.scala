@@ -14,6 +14,7 @@ import org.apache.spark.mllib.tree.configuration.Algo._
 import org.apache.spark.mllib.tree.impurity.Gini
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext
+import org.apache.spark.SparkContext._
 
 import scala.reflect.ClassTag
 
@@ -166,15 +167,15 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
 
   def runTest(rdd: RDD[Rating], numIterations: Int, rank: Int): MatrixFactorizationModel
 
-
-
   val NUM_USERS =     ("num-users",   "number of users for recommendation tests")
   val NUM_PRODUCTS =  ("num-products", "number of features of each example for recommendation tests")
   val NUM_RATINGS =   ("num-ratings",   "number of ratings for recommendation tests")
   val RANK =          ("rank", "rank of factorized matrices for recommendation tests")
+  val IMPLICIT =      ("implicit-prefs", "use implicit ratings")
 
   intOptions = intOptions ++ Seq(NUM_USERS, NUM_PRODUCTS, RANK)
   longOptions = longOptions ++ Seq(NUM_RATINGS)
+  booleanOptions = booleanOptions ++ Seq(IMPLICIT)
   val options = intOptions ++ stringOptions  ++ booleanOptions ++ longOptions ++ doubleOptions
   addOptionsToParser()
 
@@ -187,9 +188,10 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
     val numUsers: Int = intOptionValue(NUM_USERS)
     val numProducts: Int = intOptionValue(NUM_PRODUCTS)
     val numRatings: Long = longOptionValue(NUM_RATINGS)
+    val implicitRatings: Boolean = booleanOptionValue(IMPLICIT)
 
     val data = DataGenerator.generateRatings(sc, numUsers, numProducts, math.ceil(numRatings*1.25).toLong,
-      numPartitions,randomSeed)
+      implicitRatings,numPartitions,randomSeed)
 
     rdd = data._1.cache()
     testRdd = data._2
@@ -199,15 +201,14 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
 
   }
 
-  def validate(model: MatrixFactorizationModel, rdd: RDD[Rating]): Double = {
-    val numRatings = rdd.cache().count()
+  def validate(model: MatrixFactorizationModel, data: RDD[Rating], implicitPrefs: Boolean): Double = {
+    val predictions: RDD[Rating] = model.predict(data.map(x => (x.user, x.product)))
+    val predictionsAndRatings: RDD[(Double, Double)] = predictions.map{ x =>
+      def mapPredictedRating(r: Double) = if (implicitPrefs) math.max(math.min(r, 1.0), 0.0) else r
+      ((x.user, x.product), mapPredictedRating(x.rating))
+    }.join(data.map(x => ((x.user, x.product), x.rating))).values
 
-    val error = rdd.map{ rating =>
-      val prediction = model.predict(rating.user, rating.product)
-      (prediction - rating.rating) * (prediction - rating.rating)
-    }.reduce(_ + _)
-
-    math.sqrt(error/numRatings)
+    math.sqrt(predictionsAndRatings.map(x => (x._1 - x._2) * (x._1 - x._2)).mean())
   }
 
   override def run(): Seq[(Double, Double, Double)] = {
@@ -215,6 +216,7 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
     val interTrialWait: Int = intOptionValue(INTER_TRIAL_WAIT)
     val numIterations: Int = intOptionValue(NUM_ITERATIONS)
     val rank: Int = intOptionValue(RANK)
+    val implicitRatings: Boolean = booleanOptionValue(IMPLICIT)
 
     val result = (1 to numTrials).map { t =>
       val start = System.currentTimeMillis()
@@ -222,8 +224,8 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
       val end = System.currentTimeMillis()
       val time = (end - start).toDouble / 1000.0
 
-      val trainError = validate(model, rdd)
-      val testError = validate(model, testRdd)
+      val trainError = validate(model, rdd,implicitRatings)
+      val testError = validate(model, testRdd,implicitRatings)
       System.gc()
       Thread.sleep(interTrialWait * 1000)
 

@@ -12,16 +12,18 @@ import scala.collection.mutable
 
 object DataGenerator {
 
-  // TODO: Smart generation of synthetic data
   def generateLabeledPoints( sc: SparkContext,
                              numRows: Long,
                              numCols: Int,
                              intercept: Double,
                              eps: Double,
                              numPartitions: Int,
-                             seed: Long = System.currentTimeMillis()): RDD[LabeledPoint] = {
+                             seed: Long = System.currentTimeMillis(),
+                             problem: String = ""): RDD[LabeledPoint] = {
 
-    RandomRDDGenerators.randomRDD(sc, new LinearDataGenerator(numCols,intercept, seed, eps), numRows, numPartitions, seed)
+    RandomRDDGenerators.randomRDD(sc, new LinearDataGenerator(numCols,intercept, seed, eps, problem),
+      numRows, numPartitions, seed)
+
   }
 
   def generateClassificationLabeledPoints( sc: SparkContext,
@@ -32,9 +34,11 @@ object DataGenerator {
                              numPartitions: Int,
                              seed: Long = System.currentTimeMillis()): RDD[LabeledPoint] = {
 
-    RandomRDDGenerators.randomRDD(sc, new ClassLabelGenerator(numCols,threshold, scaleFactor), numRows, numPartitions, seed)
+    RandomRDDGenerators.randomRDD(sc, new ClassLabelGenerator(numCols,threshold, scaleFactor),
+      numRows, numPartitions, seed)
   }
 
+  // TODO: Smart generation of synthetic data
   def generateVectors( sc: SparkContext,
                              numRows: Long,
                              numCols: Int,
@@ -44,6 +48,7 @@ object DataGenerator {
     RandomRDDGenerators.uniformVectorRDD(sc, numRows, numCols, numPartitions, seed)
   }
 
+  // TODO: Smart generation of synthetic data
   def generateRatings( sc: SparkContext,
                        numUsers: Int,
                        numProducts: Int,
@@ -80,6 +85,7 @@ class RatingGenerator(val numUsers: Int,
   override def copy(): RatingGenerator = new RatingGenerator(numUsers, numProducts)
 }
 
+// For general classification
 class ClassLabelGenerator(private val numFeatures: Int,
                           private val threshold: Double,
                           private val scaleFactor: Double) extends RandomDataGenerator[LabeledPoint] {
@@ -105,7 +111,37 @@ class ClassLabelGenerator(private val numFeatures: Int,
 class LinearDataGenerator(val numFeatures: Int,
                           val intercept: Double,
                           val seed: Long,
-                          val eps: Double) extends RandomDataGenerator[LabeledPoint] {
+                          val eps: Double,
+                          val problem: String = "") extends RandomDataGenerator[LabeledPoint] {
+
+  private val rng = new java.util.Random(seed)
+
+  private val weights = Array.fill(numFeatures)(rng.nextDouble())
+
+  override def nextValue(): LabeledPoint = {
+    val x = Array.fill[Double](numFeatures)(2*rng.nextDouble()-1)
+    val y = weights.zip(x).map(p => p._1 * p._2).sum + intercept + eps*rng.nextGaussian()
+    val yD = problem match {
+      case "SVM" => if (y < 0.0) 0.0 else 1.0
+      case _ => y
+    }
+
+    LabeledPoint(yD, Vectors.dense(x))
+  }
+
+  override def setSeed(seed: Long) {
+    rng.setSeed(seed)
+  }
+
+  override def copy(): LinearDataGenerator = new LinearDataGenerator(numFeatures, intercept, seed, eps)
+}
+
+/*
+// TODO: Needs work
+class KMeansDataGenerator(val numCenters: Int,
+                          val intercept: Double,
+                          val seed: Long,
+                          val eps: Double) extends RandomDataGenerator[Vector] {
 
   private val rng = new java.util.Random(seed)
 
@@ -124,3 +160,4 @@ class LinearDataGenerator(val numFeatures: Int,
 
   override def copy(): LinearDataGenerator = new LinearDataGenerator(numFeatures, intercept, seed, eps)
 }
+*/

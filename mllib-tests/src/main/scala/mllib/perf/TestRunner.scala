@@ -21,7 +21,7 @@ object TestRunner {
         case "lasso" => new LassoTest(sc)
         case "als" => new ALSTest(sc)
         case "logistic-regression" => new LogisticRegressionTest(sc)
-        //case "naive-bayes" => new NaiveBayesTest(sc)
+        case "naive-bayes" => new NaiveBayesTest(sc)
         case "svm" => new SVMTest(sc)
         case "kmeans" => new KMeansTest(sc)
         //case "decision-tree" => new DecisionTreeTest(sc)

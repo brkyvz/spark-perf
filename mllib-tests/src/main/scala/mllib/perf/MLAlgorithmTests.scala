@@ -6,7 +6,7 @@ import mllib.perf.util.DataGenerator
 import org.apache.spark.mllib.regression._
 import org.apache.spark.mllib.clustering._
 import org.apache.spark.mllib.linalg._
-import org.apache.spark.mllib.recommendation.{ALS, Rating}
+import org.apache.spark.mllib.recommendation.{MatrixFactorizationModel, ALS, Rating}
 import org.apache.spark.mllib.classification._
 import org.apache.spark.mllib.tree.DecisionTree
 import org.apache.spark.mllib.tree.configuration.Strategy
@@ -73,9 +73,11 @@ abstract class RegressionTest(sc: SparkContext) extends RegressionAndClassificat
     val predictions: RDD[(Double, Double)] = rdd.map { example =>
       (model.predict(example.features), example.label)
     }
-    predictions.map{case (pred, label) =>
+    val error = predictions.map{case (pred, label) =>
       (pred-label) * (pred-label)
-    }.reduce(_ + _) / numExamples
+    }.reduce(_ + _)
+
+    math.sqrt(error / numExamples)
   }
 
   override def run(): Seq[(Double, Double, Double)] = {
@@ -162,7 +164,9 @@ abstract class ClassificationTest[M](sc: SparkContext) extends RegressionAndClas
 
 abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
 
-  def runTest(rdd: RDD[Rating], numIterations: Int, rank: Int)
+  def runTest(rdd: RDD[Rating], numIterations: Int, rank: Int): MatrixFactorizationModel
+
+
 
   val NUM_USERS =     ("num-users",   "number of users for recommendation tests")
   val NUM_PRODUCTS =  ("num-products", "number of features of each example for recommendation tests")
@@ -175,6 +179,7 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
   addOptionsToParser()
 
   var rdd: RDD[Rating] = _
+  var testRdd: RDD[Rating] = _
 
   override def createInputData() = {
     val numPartitions: Int = intOptionValue(NUM_PARTITIONS)
@@ -183,11 +188,28 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
     val numProducts: Int = intOptionValue(NUM_PRODUCTS)
     val numRatings: Long = intOptionValue(NUM_RATINGS).toLong
 
-    rdd = DataGenerator.generateRatings(sc, numUsers, numProducts, numRatings, numPartitions,randomSeed).cache()
+    val data = DataGenerator.generateRatings(sc, numUsers, numProducts, math.ceil(numRatings*1.25).toLong,
+      numPartitions,randomSeed)
+
+    val split = data.randomSplit(Array(0.8, 0.2), randomSeed)
+
+    rdd = split(0).cache()
+    testRdd = split(1)
 
     // Materialize rdd
     println("Num Examples: " + rdd.count())
 
+  }
+
+  def validate(model: MatrixFactorizationModel, rdd: RDD[Rating]): Double = {
+    val numRatings = rdd.cache().count()
+
+    val error = rdd.map{ rating =>
+      val prediction = model.predict(rating.user, rating.product)
+      (prediction - rating.rating) * (prediction - rating.rating)
+    }.reduce(_ + _)
+
+    math.sqrt(error/numRatings)
   }
 
   override def run(): Seq[(Double, Double, Double)] = {
@@ -198,13 +220,16 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
 
     val result = (1 to numTrials).map { t =>
       val start = System.currentTimeMillis()
-      runTest(rdd, numIterations, rank)
+      val model = runTest(rdd, numIterations, rank)
       val end = System.currentTimeMillis()
       val time = (end - start).toDouble / 1000.0
+
+      val trainError = validate(model, rdd)
+      val testError = validate(model, testRdd)
       System.gc()
       Thread.sleep(interTrialWait * 1000)
-      // TODO: Dummy 1.0 for now
-      (time, 1.0, 1.0)
+
+      (time, trainError, testError)
     }
 
     result
@@ -213,7 +238,7 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
 
 abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
 
-  def runTest(rdd: RDD[Vector], numIterations: Int, numCenters: Int)
+  def runTest(rdd: RDD[Vector], numIterations: Int, numCenters: Int): KMeansModel
 
   val NUM_POINTS =    ("num-points",   "number of points for clustering tests")
   val NUM_COLUMNS =   ("num-columns",   "number of columns for each point for clustering tests")
@@ -225,6 +250,15 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
   addOptionsToParser()
 
   var rdd: RDD[Vector] = _
+  var testRdd: RDD[Vector] = _
+
+  def validate(model: KMeansModel, rdd: RDD[Vector]): Double = {
+    val numPoints = rdd.cache().count()
+
+    val error = model.computeCost(rdd)
+
+    math.sqrt(error/numPoints)
+  }
 
   override def createInputData() = {
     val numPartitions: Int = intOptionValue(NUM_PARTITIONS)
@@ -233,7 +267,13 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
     val numColumns: Int = intOptionValue(NUM_COLUMNS)
     val numCenters: Int = intOptionValue(NUM_CENTERS)
 
-    rdd = DataGenerator.generateKMeansVectors(sc, numPoints, numColumns, numCenters, numPartitions, randomSeed).cache()
+    val data = DataGenerator.generateKMeansVectors(sc, math.ceil(numPoints*1.25).toLong, numColumns,
+      numCenters, numPartitions, randomSeed)
+
+    val split = data.randomSplit(Array(0.8, 0.2), randomSeed)
+
+    rdd = split(0).cache()
+    testRdd = split(1)
 
     // Materialize rdd
     println("Num Examples: " + rdd.count())
@@ -247,13 +287,15 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
 
     val result = (1 to numTrials).map { t =>
       val start = System.currentTimeMillis()
-      runTest(rdd, numIterations, k)
+      val model = runTest(rdd, numIterations, k)
       val end = System.currentTimeMillis()
       val time = (end - start).toDouble / 1000.0
+      val trainError = validate(model, rdd)
+      val testError = validate(model, testRdd)
       System.gc()
       Thread.sleep(interTrialWait * 1000)
-      // TODO: Dummy 1.0 for now
-      (time, 1.0, 1.0)
+
+      (time, trainError, testError)
     }
 
     result
@@ -379,14 +421,16 @@ class DecisionTreeTest(sc: SparkContext) extends ClassificationTest(sc) {
 */
 // Recommendation
 class ALSTest(sc: SparkContext) extends RecommendationTests(sc) {
-  override def runTest(rdd: RDD[Rating], numIterations: Int, rank: Int) {
-    ALS.train(rdd, rank, numIterations)
+  override def runTest(rdd: RDD[Rating], numIterations: Int, rank: Int): MatrixFactorizationModel = {
+    val regParam = doubleOptionValue(REGULARIZATION)
+
+    ALS.train(rdd, rank, numIterations, regParam)
   }
 }
 
 // Clustering
 class KMeansTest(sc: SparkContext) extends ClusteringTests(sc) {
-  override def runTest(rdd: RDD[Vector], numIterations: Int, numCenters: Int) {
+  override def runTest(rdd: RDD[Vector], numIterations: Int, numCenters: Int): KMeansModel = {
     KMeans.train(rdd, numCenters, numIterations)
   }
 }

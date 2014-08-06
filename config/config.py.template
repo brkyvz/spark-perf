@@ -300,7 +300,7 @@ MLLIB_CLUSTERING_TEST_OPTS = MLLIB_COMMON_OPTS + [
 
 #MLLIB_TESTS += [("kmeans", "mllib.perf.TestRunner", SCALE_FACTOR,
 #    COMMON_JAVA_OPTS,
-#    [ConstantOption("kmeans")] + MLLIB_CLUSTERING_TEST_OPTS)]
+#    [ConstantOption("kmeans"), OptionSet("reg-param", [0.0])] + MLLIB_CLUSTERING_TEST_OPTS)]
 
 # Skip downloading and building Spark
 SPARK_SKIP_PREP = False

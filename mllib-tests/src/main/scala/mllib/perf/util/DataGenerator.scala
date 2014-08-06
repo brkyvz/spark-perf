@@ -66,40 +66,24 @@ object DataGenerator {
     val test = RandomRDDGenerators.randomRDD(sc, new RatingGenerator(numUsers, numProducts,implicitPrefs),
       math.ceil(numRatings*0.25).toLong, numPartitions, seed+24)
 
-
-    println("Train Start Count: " + train.count())
     // Now get rid of duplicate ratings and remove non-existant userID's and prodID's from the test set
     val commons: PairRDDFunctions[(Int,Int),Rating] = new PairRDDFunctions(train.keyBy(rating => (rating.user, rating.product)).cache())
 
     val exact = commons.join(test.keyBy(rating => (rating.user, rating.product)))
 
-    println("Common Ratings: " + exact.count())
-
     val trainPruned = commons.subtractByKey(exact).map(_._2).cache()
-
-    println("Pruned Train Count: " + trainPruned.count())
-    println("Test Count: " + test.count())
 
     // Now get rid of users that don't exist in the train set
     val trainUsers: RDD[(Int,Rating)] = trainPruned.keyBy(rating => rating.user)
     val testUsers: PairRDDFunctions[Int,Rating] = new PairRDDFunctions(test.keyBy(rating => rating.user))
     val testWithAdditionalUsers = testUsers.subtractByKey(trainUsers)
-    println("Different Users: " + testWithAdditionalUsers.count())
-    println("Distinct Users Train: " + trainUsers.map(_._1).distinct().count())
-    println("Distinct Users Test: " + testUsers.keys.distinct().count())
 
     val userPrunedTestProds: RDD[(Int,Rating)] = testUsers.subtractByKey(testWithAdditionalUsers).map(_._2).keyBy(rating => rating.product)
-    println("After Count: " + userPrunedTestProds.count())
 
     val trainProds: RDD[(Int,Rating)] = trainPruned.keyBy(rating => rating.product)
 
     val testWithAdditionalProds = new PairRDDFunctions[Int, Rating](userPrunedTestProds).subtractByKey(trainProds)
-    println("Different Products: " + testWithAdditionalProds.count())
-    println("Distinct Prods Train: " + trainProds.map(_._1).distinct().count())
-    println("Distinct Prods Test: " + userPrunedTestProds.map(_._1).distinct().count())
-
     val finalTest = new PairRDDFunctions[Int, Rating](userPrunedTestProds).subtractByKey(testWithAdditionalProds).map(_._2)
-    println("Final test count: " + finalTest.count())
 
     (trainPruned, finalTest)
   }

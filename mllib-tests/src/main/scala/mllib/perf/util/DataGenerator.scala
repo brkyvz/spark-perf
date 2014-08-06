@@ -6,7 +6,7 @@ import org.apache.spark.mllib.linalg.{DenseMatrix, Vectors, Vector}
 import org.apache.spark.mllib.random.{RandomDataGenerator, RandomRDDGenerators}
 import org.apache.spark.mllib.recommendation.Rating
 import org.apache.spark.mllib.regression.LabeledPoint
-import org.apache.spark.rdd.RDD
+import org.apache.spark.rdd.{PairRDDFunctions, RDD}
 import org.apache.spark.SparkContext
 
 
@@ -50,43 +50,72 @@ object DataGenerator {
     RandomRDDGenerators.randomRDD(sc, new KMeansDataGenerator(numCenters, numCols, seed), numRows, numPartitions, seed)
   }
 
+
+  // Problems with having a userID or productID in the test set but not training set leads to a lot of work...
   def generateRatings( sc: SparkContext,
                        numUsers: Int,
                        numProducts: Int,
                        numRatings: Long,
-                       rank: Int,
                        numPartitions: Int,
-                       seed: Long = System.currentTimeMillis()): RDD[(Int, Rating)] = {
+                       seed: Long = System.currentTimeMillis()): (RDD[Rating],RDD[Rating]) = {
 
-    val rand = new java.util.Random(seed)
+    val train = RandomRDDGenerators.randomRDD(sc, new RatingGenerator(numUsers, numProducts),
+       numRatings, numPartitions, seed).cache()
 
-    val userMatrix = new DenseMatrix(numUsers, rank, Array.fill(numUsers*rank)(rand.nextDouble()*math.sqrt(5)))
-    val prodMatrix = new DenseMatrix(numProducts, rank, Array.fill(numProducts*rank)(rand.nextDouble()*math.sqrt(5)))
+    val test = RandomRDDGenerators.randomRDD(sc, new RatingGenerator(numUsers, numProducts),
+      math.ceil(numRatings*1.2).toLong, numPartitions, seed+24)
 
-    val ratingsMatrix = new DenseMatrix(numUsers, numProducts, Array.fill(numUsers*rank)(0.0))
+    // Now get rid of duplicate ratings and remove non-existant userID's and prodID's from the test set
+    val commons: PairRDDFunctions[(Int,Int),Rating] = new PairRDDFunctions(train.keyBy(rating => (rating.user, rating.product)).cache())
 
-    blas.dgemm("N", "N", numUsers, numProducts, rank, 1.0, userMatrix.values,
-      numUsers, prodMatrix.values, numProducts, 1.0, ratingsMatrix.values, numUsers)
+    val exact = commons.join(test.keyBy(rating => (rating.user, rating.product)))
 
-    val density = numRatings * 1.0 / (numUsers * numProducts)
-    val ratings = ratingsMatrix.toArray
+    val trainPruned = commons.subtractByKey(exact).map(_._2).cache()
 
-    val data = new Array[Rating](numUsers * numProducts)
-    var i = 0
-    while (i < numUsers*numProducts){
-      val userId = i % numProducts
-      val prodId = i % numUsers
-      data(i) = new Rating(userId, prodId, math.max(math.min(ratings(i)+0.1*rand.nextGaussian(),5.0),1.0))
-      i += 1
-    }
+    // Now get rid of users that don't exist in the train set
+    val trainUsers: RDD[(Int,Rating)] = trainPruned.keyBy(rating => rating.user)
+    val testUsers: PairRDDFunctions[Int,Rating] = new PairRDDFunctions(test.keyBy(rating => rating.user))
+    val testWithAdditionalUsers = testUsers.subtractByKey(trainUsers)
 
-    val rdd: RDD[Rating] = sc.parallelize(data, numPartitions).filter(r => rand.nextDouble()<= density)
+    val userPrunedTestProds: PairRDDFunctions[Int,Rating] = new PairRDDFunctions(testUsers.subtractByKey(testWithAdditionalUsers).map(_._2).keyBy(rating => rating.product))
+    val trainProds: RDD[(Int,Rating)] = trainPruned.keyBy(rating => rating.product)
 
-    rdd.map(rating => (rand.nextInt(10),rating))
+    val testWithAdditionalProds = userPrunedTestProds.subtractByKey(trainProds)
+
+    val finalTest = userPrunedTestProds.subtractByKey(testWithAdditionalProds).map(_._2)
+
+
+    (trainPruned, finalTest)
   }
 
 
 }
+
+// For general classification
+class RatingGenerator(private val numUsers: Int,
+                      private val numProducts: Int) extends RandomDataGenerator[Rating] {
+
+  private val rng = new java.util.Random()
+
+  private val observed = new mutable.HashMap[(Int, Int), Boolean]()
+
+  override def nextValue(): Rating = {
+    var tuple = (rng.nextInt(numUsers),rng.nextInt(numProducts))
+    while (observed.getOrElse(tuple,false)){
+      tuple = (rng.nextInt(numUsers),rng.nextInt(numProducts))
+    }
+    observed += (tuple -> true)
+
+    new Rating(tuple._1, tuple._2, rng.nextDouble()*5)
+  }
+
+  override def setSeed(seed: Long) {
+    rng.setSeed(seed)
+  }
+
+  override def copy(): RatingGenerator = new RatingGenerator(numUsers, numProducts)
+}
+
 
 // For general classification
 class ClassLabelGenerator(private val numFeatures: Int,

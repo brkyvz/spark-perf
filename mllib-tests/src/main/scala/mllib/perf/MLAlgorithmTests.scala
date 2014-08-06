@@ -231,8 +231,9 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
     val randomSeed: Int = intOptionValue(RANDOM_SEED)
     val numPoints: Long = longOptionValue(NUM_POINTS)
     val numColumns: Int = intOptionValue(NUM_COLUMNS)
+    val numCenters: Int = intOptionValue(NUM_CENTERS)
 
-    rdd = DataGenerator.generateVectors(sc, numPoints, numColumns, numPartitions, randomSeed).cache()
+    rdd = DataGenerator.generateKMeansVectors(sc, numPoints, numColumns, numCenters, numPartitions, randomSeed).cache()
 
     // Materialize rdd
     println("Num Examples: " + rdd.count())

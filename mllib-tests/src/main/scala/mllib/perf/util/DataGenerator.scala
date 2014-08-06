@@ -38,14 +38,14 @@ object DataGenerator {
       numRows, numPartitions, seed)
   }
 
-  // TODO: Smart generation of synthetic data
-  def generateVectors( sc: SparkContext,
+  def generateKMeansVectors( sc: SparkContext,
                              numRows: Long,
                              numCols: Int,
+                             numCenters: Int,
                              numPartitions: Int,
                              seed: Long = System.currentTimeMillis()): RDD[Vector] = {
 
-    RandomRDDGenerators.uniformVectorRDD(sc, numRows, numCols, numPartitions, seed)
+    RandomRDDGenerators.randomRDD(sc, new KMeansDataGenerator(numCenters, numCols, seed), numRows, numPartitions, seed)
   }
 
   // TODO: Smart generation of synthetic data
@@ -121,10 +121,12 @@ class LinearDataGenerator(val numFeatures: Int,
   override def nextValue(): LabeledPoint = {
     val x = Array.fill[Double](numFeatures)(2*rng.nextDouble()-1)
     val y = weights.zip(x).map(p => p._1 * p._2).sum + intercept + eps*rng.nextGaussian()
-    val yD = problem match {
-      case "SVM" => if (y < 0.0) 0.0 else 1.0
-      case _ => y
-    }
+    val yD =
+      if (problem == "SVM") {
+        if (y < 0.0) 0.0 else 1.0
+      }else {
+        y
+      }
 
     LabeledPoint(yD, Vectors.dense(x))
   }
@@ -133,31 +135,60 @@ class LinearDataGenerator(val numFeatures: Int,
     rng.setSeed(seed)
   }
 
-  override def copy(): LinearDataGenerator = new LinearDataGenerator(numFeatures, intercept, seed, eps)
+  override def copy(): LinearDataGenerator = new LinearDataGenerator(numFeatures, intercept, seed, eps, problem)
 }
 
-/*
-// TODO: Needs work
 class KMeansDataGenerator(val numCenters: Int,
-                          val intercept: Double,
-                          val seed: Long,
-                          val eps: Double) extends RandomDataGenerator[Vector] {
+                          val numColumns: Int,
+                          val seed: Long) extends RandomDataGenerator[Vector] {
 
   private val rng = new java.util.Random(seed)
+  private val rng2 = new java.util.Random(seed+24)
+  private val scale_factors = Array.fill(numCenters)(rng.nextInt(20)-10)
 
-  private val weights = Array.fill(numFeatures)(rng.nextDouble())
+  // Have a random number of points around a cluster
+  private val concentrations: IndexedSeq[Double] = {
+    val rand = Array.fill(numCenters)(rng.nextDouble())
+    val randSum = rand.sum
+    val scaled = rand.map(x => x / randSum)
 
-  override def nextValue(): LabeledPoint = {
-    val x = Array.fill[Double](numFeatures)(2*rng.nextDouble()-1)
-    val y = weights.zip(x).map(p => p._1 * p._2).sum + intercept + eps*rng.nextGaussian()
+    (0 until numCenters).map{i =>
+      scaled.slice(0, i).sum
+    }
+  }
 
-    LabeledPoint(y, Vectors.dense(x))
+  private val centers = (0 until numCenters).map{i =>
+    Array.fill(numColumns)((2*rng.nextDouble()-1)*scale_factors(i))
+  }
+
+  def binarySearch(target: Double, list: Seq[Double]): Int = {
+    var left = 0
+    var right = list.length-1
+    var mid = 0
+    while (left<= right){
+      mid = left + (right-left)/2
+      if (list(mid)==target || mid==left)
+        return mid
+      else if (list(mid)>target)
+        right = mid-1
+      else
+        left = mid+1
+    }
+    mid
+  }
+
+  override def nextValue(): Vector = {
+    val pick_center_rand = rng2.nextDouble()
+
+    val centerToAddTo = centers(binarySearch(pick_center_rand, concentrations))
+
+    Vectors.dense(Array.tabulate(numColumns)(i => centerToAddTo(i) + rng2.nextGaussian()))
   }
 
   override def setSeed(seed: Long) {
     rng.setSeed(seed)
   }
 
-  override def copy(): LinearDataGenerator = new LinearDataGenerator(numFeatures, intercept, seed, eps)
+  override def copy(): KMeansDataGenerator = new KMeansDataGenerator(numCenters, numColumns, seed)
 }
-*/
+

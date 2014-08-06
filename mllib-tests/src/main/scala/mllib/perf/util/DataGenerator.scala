@@ -1,6 +1,8 @@
 package mllib.perf.util
 
-import org.apache.spark.mllib.linalg.{Vectors, Vector}
+import com.github.fommil.netlib.BLAS.{getInstance => blas}
+
+import org.apache.spark.mllib.linalg.{DenseMatrix, Vectors, Vector}
 import org.apache.spark.mllib.random.{RandomDataGenerator, RandomRDDGenerators}
 import org.apache.spark.mllib.recommendation.Rating
 import org.apache.spark.mllib.regression.LabeledPoint
@@ -52,36 +54,38 @@ object DataGenerator {
                        numUsers: Int,
                        numProducts: Int,
                        numRatings: Long,
+                       rank: Int,
                        numPartitions: Int,
                        seed: Long = System.currentTimeMillis()): RDD[(Int, Rating)] = {
 
-    RandomRDDGenerators.randomRDD(sc, new RatingGenerator(numUsers, numProducts), numRatings, numPartitions, seed)
+    val rand = new java.util.Random(seed)
+
+    val userMatrix = new DenseMatrix(numUsers, rank, Array.fill(numUsers*rank)(rand.nextDouble()*math.sqrt(5)))
+    val prodMatrix = new DenseMatrix(numProducts, rank, Array.fill(numProducts*rank)(rand.nextDouble()*math.sqrt(5)))
+
+    val ratingsMatrix = new DenseMatrix(numUsers, numProducts, Array.fill(numUsers*rank)(0.0))
+
+    blas.dgemm("N", "N", numUsers, numProducts, rank, 1.0, userMatrix.values,
+      numUsers, prodMatrix.values, numProducts, 1.0, ratingsMatrix.values, numUsers)
+
+    val density = numRatings * 1.0 / (numUsers * numProducts)
+    val ratings = ratingsMatrix.toArray
+
+    val data = new Array[Rating](numUsers * numProducts)
+    var i = 0
+    while (i < numUsers*numProducts){
+      val userId = i % numProducts
+      val prodId = i % numUsers
+      data(i) = new Rating(userId, prodId, math.max(math.min(ratings(i)+0.1*rand.nextGaussian(),5.0),1.0))
+      i += 1
+    }
+
+    val rdd: RDD[Rating] = sc.parallelize(data, numPartitions).filter(r => rand.nextDouble()<= density)
+
+    rdd.map(rating => (rand.nextInt(10),rating))
   }
 
 
-}
-
-class RatingGenerator(val numUsers: Int,
-                      val numProducts: Int) extends RandomDataGenerator[(Int, Rating)] {
-
-  private val rng = new java.util.Random()
-  private val observed = new mutable.HashMap[(Int, Int), Boolean]()
-
-  override def nextValue(): (Int, Rating) = {
-    var tuple: (Int, Int) = (0,0)
-    do {
-      tuple = (rng.nextInt(numUsers),rng.nextInt(numProducts))
-    }while(observed.getOrElse(tuple, false))
-    observed += (tuple -> true)
-
-    (rng.nextInt(10), new Rating(tuple._1, tuple._2, (rng.nextInt(5)+1)*1.0))
-  }
-
-  override def setSeed(seed: Long) {
-    rng.setSeed(seed)
-  }
-
-  override def copy(): RatingGenerator = new RatingGenerator(numUsers, numProducts)
 }
 
 // For general classification

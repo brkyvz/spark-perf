@@ -198,7 +198,7 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
       if (rating.user == maxUser || rating.product == maxProd) {
         true
       }else {
-        id <= 0.8
+        id <= 8
       }
     }.map(_._2).cache()
 
@@ -206,7 +206,7 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
       if (rating.user == maxUser || rating.product == maxProd) {
         false
       }else {
-        id > 0.8
+        id > 8
       }
     }.map(_._2)
 

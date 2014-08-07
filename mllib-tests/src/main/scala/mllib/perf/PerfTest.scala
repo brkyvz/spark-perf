@@ -11,6 +11,7 @@ abstract class PerfTest extends Logging {
   val NUM_PARTITIONS =      ("num-partitions", "number of input partitions")
   val RANDOM_SEED =         ("random-seed", "seed for random number generator")
   val NUM_ITERATIONS =      ("num-iterations",   "number of iterations for the algorithm")
+  val REGULARIZATION =      ("reg-param",   "the regularization parameter against overfitting")
 
   /** Initialize internal state based on arguments */
   def initialize(testName_ : String, otherArgs: Array[String]) {
@@ -21,33 +22,47 @@ abstract class PerfTest extends Logging {
   def createInputData()
 
   /** Runs the test and returns a series of results, along with values of any parameters */
-  def run(): Seq[Double]
+  def run(): Seq[(Double, Double, Double)]
 
   val parser = new OptionParser()
   var optionSet: OptionSet = _
   var testName: String = _
 
+  var intOptions: Seq[(String, String)] = Seq(NUM_TRIALS, INTER_TRIAL_WAIT, NUM_PARTITIONS, RANDOM_SEED,
+    NUM_ITERATIONS)
+
+  var doubleOptions: Seq[(String, String)] = Seq(REGULARIZATION)
+  var longOptions: Seq[(String, String)] = Seq()
 
   val stringOptions: Seq[(String, String)] = Seq()
-  val booleanOptions: Seq[(String, String)] = Seq()
+  var booleanOptions: Seq[(String, String)] = Seq()
 
-  // add all the options to parser
-  stringOptions.map{case (opt, desc) =>
-    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[String]).required()
+  def addOptionsToParser() {
+    // add all the options to parser
+    stringOptions.map{case (opt, desc) =>
+      parser.accepts(opt, desc).withRequiredArg().ofType(classOf[String]).required()
+    }
+    booleanOptions.map{case (opt, desc) =>
+      parser.accepts(opt, desc)
+    }
+    intOptions.map{case (opt, desc) =>
+      parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Int]).required()
+    }
+    doubleOptions.map{case (opt, desc) =>
+      parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Double]).required()
+    }
+    longOptions.map{case (opt, desc) =>
+      parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Long]).required()
+    }
   }
-  booleanOptions.map{case (opt, desc) =>
-    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Boolean]).required()
-  }
 
-  def intOptionValue(option: (String, String)) =
-    optionSet.valueOf(option._1).asInstanceOf[Int]
+  def intOptionValue(option: (String, String)) = optionSet.valueOf(option._1).asInstanceOf[Int]
 
-  def doubleOptionValue(option: (String, String)) =
-    optionSet.valueOf(option._1).asInstanceOf[Double]
+  def stringOptionValue(option: (String, String)) = optionSet.valueOf(option._1).asInstanceOf[String]
 
-  def stringOptionValue(option: (String, String)) =
-    optionSet.valueOf(option._1).asInstanceOf[String]
+  def booleanOptionValue(option: (String, String)) = optionSet.has(option._1)
 
-  def booleanOptionValue(option: (String, String)) =
-    optionSet.valueOf(option._1).asInstanceOf[Boolean]
+  def doubleOptionValue(option: (String, String)) = optionSet.valueOf(option._1).asInstanceOf[Double]
+
+  def longOptionValue(option: (String, String)) = optionSet.valueOf(option._1).asInstanceOf[Long]
 }

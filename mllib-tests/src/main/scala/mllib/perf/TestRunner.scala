@@ -28,8 +28,8 @@ object TestRunner {
     }
     test.initialize(testName, perfTestArgs)
     test.createInputData()
-    val results: Seq[Double] = test.run()
-    println("results: " + results.map(r => "%.3f".format(r)).mkString(","))
+    val results: Seq[(Double, Double, Double)] = test.run()
+    println("results: " + results.map(r => "%.3f;%.3f;%.3f".format(r._1, r._2, r._3)).mkString(","))
   }
 
 }

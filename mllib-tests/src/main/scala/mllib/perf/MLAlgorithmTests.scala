@@ -6,7 +6,7 @@ import mllib.perf.util.DataGenerator
 import org.apache.spark.mllib.regression._
 import org.apache.spark.mllib.clustering._
 import org.apache.spark.mllib.linalg._
-import org.apache.spark.mllib.recommendation.{ALS, Rating}
+import org.apache.spark.mllib.recommendation.{MatrixFactorizationModel, ALS, Rating}
 import org.apache.spark.mllib.classification._
 import org.apache.spark.mllib.tree.DecisionTree
 import org.apache.spark.mllib.tree.configuration.Algo._
@@ -14,71 +14,153 @@ import org.apache.spark.mllib.tree.configuration.QuantileStrategy
 import org.apache.spark.mllib.tree.impurity._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext
+import org.apache.spark.SparkContext._
+
+import scala.reflect.ClassTag
 
 
 /** Parent class for tests which run on a large dataset. */
-abstract class RegressionAndClassificationTests(sc: SparkContext) extends PerfTest {
+abstract class RegressionAndClassificationTests[M](sc: SparkContext) extends PerfTest {
 
-  def runTest(rdd: RDD[LabeledPoint], numIterations: Int)
+  def runTest(rdd: RDD[LabeledPoint], numIterations: Int): M
 
-  val NUM_EXAMPLES = ("num-examples",   "number of examples for regression tests")
-  val NUM_FEATURES = ("num-features",   "number of features of each example for regression tests")
+  def validate(model: M, rdd: RDD[LabeledPoint]): Double
 
-  val intOptions: Seq[(String, String)] = Seq(NUM_TRIALS, INTER_TRIAL_WAIT, NUM_PARTITIONS, RANDOM_SEED,
-    NUM_ITERATIONS, NUM_EXAMPLES, NUM_FEATURES)
-  val options = intOptions ++ stringOptions  ++ booleanOptions
+  val NUM_EXAMPLES =  ("num-examples",   "number of examples for regression tests")
+  val NUM_FEATURES =  ("num-features",   "number of features of each example for regression tests")
+  val STEP_SIZE =     ("step-size",   "step size for SGD")
 
-  intOptions.map{case (opt, desc) =>
-    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Int]).required()
-  }
+  intOptions = intOptions ++ Seq(NUM_FEATURES)
+  longOptions = Seq(NUM_EXAMPLES)
+  doubleOptions = doubleOptions ++ Seq(STEP_SIZE)
 
   var rdd: RDD[LabeledPoint] = _
+  var testRdd: RDD[LabeledPoint] = _
 
-  override def run(): Seq[Double] = {
+}
+
+abstract class RegressionTest(sc: SparkContext) extends RegressionAndClassificationTests[GeneralizedLinearModel](sc) {
+
+  val INTERCEPT =  ("intercept",   "intercept for random data generation")
+  val EPS =  ("epsilon",   "scale factor for the noise during data generation")
+
+  doubleOptions = doubleOptions ++ Seq(INTERCEPT, EPS)
+
+  val options = intOptions ++ stringOptions  ++ booleanOptions ++ doubleOptions ++ longOptions
+  addOptionsToParser()
+  override def createInputData() = {
+    val numExamples: Long = longOptionValue(NUM_EXAMPLES)
+    val numFeatures: Int = intOptionValue(NUM_FEATURES)
+    val numPartitions: Int = intOptionValue(NUM_PARTITIONS)
+    val randomSeed: Int = intOptionValue(RANDOM_SEED)
+    val intercept: Double = doubleOptionValue(INTERCEPT)
+    val eps: Double = doubleOptionValue(EPS)
+
+    val data = DataGenerator.generateLabeledPoints(sc, math.ceil(numExamples*1.25).toLong,
+      numFeatures, intercept, eps, numPartitions,randomSeed)
+
+    val split = data.randomSplit(Array(0.8, 0.2), randomSeed)
+
+    rdd = split(0).cache()
+    testRdd = split(1)
+
+    // Materialize rdd
+    println("Num Examples: " + rdd.count())
+  }
+
+  override def validate(model: GeneralizedLinearModel, rdd: RDD[LabeledPoint]): Double = {
+    val numExamples = rdd.count()
+
+    val predictions: RDD[(Double, Double)] = rdd.map { example =>
+      (model.predict(example.features), example.label)
+    }
+    val error = predictions.map{case (pred, label) =>
+      (pred-label) * (pred-label)
+    }.reduce(_ + _)
+
+    math.sqrt(error / numExamples)
+  }
+
+  override def run(): Seq[(Double, Double, Double)] = {
     val numTrials = intOptionValue(NUM_TRIALS)
     val numIterations = intOptionValue(NUM_ITERATIONS)
     val interTrialWait = intOptionValue(INTER_TRIAL_WAIT)
+    val intercept = doubleOptionValue(INTERCEPT)
 
     val result = (1 to numTrials).map { t =>
       val start = System.currentTimeMillis()
-      runTest(rdd, numIterations)
+      val model = runTest(rdd, numIterations)
       val end = System.currentTimeMillis()
       val time = (end - start).toDouble / 1000.0
+
+      val metricOnTrain = validate(model, rdd)
+      val metric = validate(model, testRdd)
       System.gc()
       Thread.sleep(interTrialWait * 1000)
-      time
+      (time, metricOnTrain, metric)
     }
 
     result
   }
 }
 
-abstract class RegressionTest(sc: SparkContext) extends RegressionAndClassificationTests(sc) {
+abstract class ClassificationTest[M](sc: SparkContext) extends RegressionAndClassificationTests[M](sc) {
+
+  val THRESHOLD =  ("per-negative",   "probability for a negative label during data generation")
+  val SCALE =  ("scale-factor",   "scale factor for the noise during data generation")
+  val SMOOTHING =     ("nb-lambda",   "the smoothing parameter lambda for Naive Bayes")
+
+  doubleOptions = doubleOptions ++ Seq(THRESHOLD, SCALE, SMOOTHING)
+
+  val options = intOptions ++ stringOptions  ++ booleanOptions ++ doubleOptions ++ longOptions
+  addOptionsToParser()
+
   override def createInputData() = {
-    val numExamples: Long = intOptionValue(NUM_EXAMPLES).toLong
+    val numExamples: Long = longOptionValue(NUM_EXAMPLES)
     val numFeatures: Int = intOptionValue(NUM_FEATURES)
     val numPartitions: Int = intOptionValue(NUM_PARTITIONS)
     val randomSeed: Int = intOptionValue(RANDOM_SEED)
+    val threshold: Double = doubleOptionValue(THRESHOLD)
+    val sf: Double = doubleOptionValue(SCALE)
 
-    rdd = DataGenerator.generateLabeledPoints(sc, numExamples, numFeatures, numPartitions,randomSeed).cache()
+    val data = DataGenerator.generateClassificationLabeledPoints(sc, math.ceil(numExamples*1.25).toLong,
+      numFeatures, threshold, sf, numPartitions,randomSeed)
+
+    val split = data.randomSplit(Array(0.8, 0.2), randomSeed)
+
+    rdd = split(0).cache()
+    testRdd = split(1)
 
     // Materialize rdd
     println("Num Examples: " + rdd.count())
   }
-}
 
-abstract class ClassificationTest(sc: SparkContext) extends RegressionAndClassificationTests(sc) {
-  override def createInputData() = {
-    val numExamples: Long = intOptionValue(NUM_EXAMPLES).toLong
-    val numFeatures: Int = intOptionValue(NUM_FEATURES)
-    val numPartitions: Int = intOptionValue(NUM_PARTITIONS)
-    val randomSeed: Int = intOptionValue(RANDOM_SEED)
+  override def run(): Seq[(Double, Double, Double)] = {
+    val numTrials = intOptionValue(NUM_TRIALS)
+    val numIterations = intOptionValue(NUM_ITERATIONS)
+    val interTrialWait = intOptionValue(INTER_TRIAL_WAIT)
 
-    rdd = DataGenerator.generateClassificationLabeledPoints(sc, numExamples, numFeatures, numPartitions,randomSeed).cache()
+    val result = (1 to numTrials).map { t =>
+      val start = System.currentTimeMillis()
+      val model = runTest(rdd, numIterations)
+      val end = System.currentTimeMillis()
+      val time = (end - start).toDouble / 1000.0
+      val metricOnTrain = validate(model, rdd)
+      val metric = validate(model, testRdd)
+      System.gc()
+      Thread.sleep(interTrialWait * 1000)
+      (time, metricOnTrain, metric)
+    }
 
-    // Materialize rdd
-    println("Num Examples: " + rdd.count())
+    result
   }
+
+  def calculateAccuracy(predictions: RDD[(Double, Double)], numExamples: Long): Double = {
+    predictions.map{case (pred, label) =>
+      pred.toByte ^ label.toByte ^ 1
+    }.reduce(_ + _) * 100.0 / numExamples
+  }
+
 }
 
 /**
@@ -101,86 +183,100 @@ abstract class DecisionTreeTests(sc: SparkContext) extends PerfTest {
   val TREE_DEPTH = ("tree-depth", "Depth of true decision tree model used to label examples.")
   val MAX_BINS = ("max-bins", "Maximum number of bins for the decision tree learning algorithm.")
 
-  val intOptions: Seq[(String, String)] = Seq(NUM_TRIALS, INTER_TRIAL_WAIT, NUM_PARTITIONS, RANDOM_SEED,
-    NUM_EXAMPLES, NUM_FEATURES, LABEL_TYPE, TREE_DEPTH, MAX_BINS)
-  val doubleOptions: Seq[(String, String)] = Seq(FRAC_CATEGORICAL_FEATURES, FRAC_BINARY_FEATURES)
-  val options = intOptions ++ stringOptions ++ booleanOptions ++ doubleOptions
+  intOptions = intOptions ++ Seq(NUM_FEATURES, LABEL_TYPE, TREE_DEPTH, MAX_BINS)
+  longOptions = longOptions ++ Seq(NUM_EXAMPLES)
 
-  intOptions.map{case (opt, desc) =>
-    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Int]).required()
-  }
-  doubleOptions.map{case (opt, desc) =>
-    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Double]).required()
-  }
+  doubleOptions = doubleOptions ++ Seq(FRAC_CATEGORICAL_FEATURES, FRAC_BINARY_FEATURES)
+
+  val options = intOptions ++ stringOptions  ++ booleanOptions ++ doubleOptions ++ longOptions
+  addOptionsToParser()
 
   var rdd: RDD[LabeledPoint] = _
   var categoricalFeaturesInfo: Map[Int, Int] = Map.empty
 
-  override def run(): Seq[Double] = {
+  override def run(): Seq[(Double, Double, Double)] = {
     val numTrials = intOptionValue(NUM_TRIALS)
     val interTrialWait = intOptionValue(INTER_TRIAL_WAIT)
 
-    val result = (1 to numTrials).map { t =>
+    (1 to numTrials).map { t =>
       val start = System.currentTimeMillis()
       runTest(rdd)
       val end = System.currentTimeMillis()
       val time = (end - start).toDouble / 1000.0
       System.gc()
       Thread.sleep(interTrialWait * 1000)
-      time
+      (time, 0.0, 0.0) // TODO: Return train, test error
     }
-
-    result
   }
 }
 
 abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
 
-  def runTest(rdd: RDD[Rating], numIterations: Int, rank: Int)
+  def runTest(rdd: RDD[Rating], numIterations: Int, rank: Int): MatrixFactorizationModel
 
   val NUM_USERS =     ("num-users",   "number of users for recommendation tests")
   val NUM_PRODUCTS =  ("num-products", "number of features of each example for recommendation tests")
   val NUM_RATINGS =   ("num-ratings",   "number of ratings for recommendation tests")
-  val RANK = ("rank",   "rank of factorized matrices for recommendation tests")
+  val RANK =          ("rank", "rank of factorized matrices for recommendation tests")
+  val IMPLICIT =      ("implicit-prefs", "use implicit ratings")
 
-  val intOptions = Seq(NUM_TRIALS, INTER_TRIAL_WAIT, NUM_PARTITIONS, RANDOM_SEED,
-    NUM_ITERATIONS, NUM_USERS, NUM_PRODUCTS, NUM_RATINGS, RANK)
-  val options = intOptions ++ stringOptions  ++ booleanOptions
-
-  intOptions.map{case (opt, desc) =>
-    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Int]).required()
-  }
+  intOptions = intOptions ++ Seq(NUM_USERS, NUM_PRODUCTS, RANK)
+  longOptions = longOptions ++ Seq(NUM_RATINGS)
+  booleanOptions = booleanOptions ++ Seq(IMPLICIT)
+  val options = intOptions ++ stringOptions  ++ booleanOptions ++ longOptions ++ doubleOptions
+  addOptionsToParser()
 
   var rdd: RDD[Rating] = _
+  var testRdd: RDD[Rating] = _
 
   override def createInputData() = {
     val numPartitions: Int = intOptionValue(NUM_PARTITIONS)
     val randomSeed: Int = intOptionValue(RANDOM_SEED)
     val numUsers: Int = intOptionValue(NUM_USERS)
     val numProducts: Int = intOptionValue(NUM_PRODUCTS)
-    val numRatings: Long = intOptionValue(NUM_RATINGS).toLong
+    val numRatings: Long = longOptionValue(NUM_RATINGS)
+    val implicitRatings: Boolean = booleanOptionValue(IMPLICIT)
 
-    rdd = DataGenerator.generateRatings(sc, numUsers, numProducts, numRatings, numPartitions,randomSeed).cache()
+    val data = DataGenerator.generateRatings(sc, numUsers, numProducts, math.ceil(numRatings*1.25).toLong,
+      implicitRatings,numPartitions,randomSeed)
+
+    rdd = data._1.cache()
+    testRdd = data._2
 
     // Materialize rdd
     println("Num Examples: " + rdd.count())
 
   }
 
-  override def run(): Seq[Double] = {
+  def validate(model: MatrixFactorizationModel, data: RDD[Rating], implicitPrefs: Boolean): Double = {
+    val predictions: RDD[Rating] = model.predict(data.map(x => (x.user, x.product)))
+    val predictionsAndRatings: RDD[(Double, Double)] = predictions.map{ x =>
+      def mapPredictedRating(r: Double) = if (implicitPrefs) math.max(math.min(r, 1.0), 0.0) else r
+      ((x.user, x.product), mapPredictedRating(x.rating))
+    }.join(data.map(x => ((x.user, x.product), x.rating))).values
+
+    math.sqrt(predictionsAndRatings.map(x => (x._1 - x._2) * (x._1 - x._2)).mean())
+  }
+
+  override def run(): Seq[(Double, Double, Double)] = {
     val numTrials = intOptionValue(NUM_TRIALS)
     val interTrialWait: Int = intOptionValue(INTER_TRIAL_WAIT)
     val numIterations: Int = intOptionValue(NUM_ITERATIONS)
     val rank: Int = intOptionValue(RANK)
+    val implicitRatings: Boolean = booleanOptionValue(IMPLICIT)
 
     val result = (1 to numTrials).map { t =>
       val start = System.currentTimeMillis()
-      runTest(rdd, numIterations, rank)
+      val model = runTest(rdd, numIterations, rank)
       val end = System.currentTimeMillis()
       val time = (end - start).toDouble / 1000.0
+
+      val trainError = validate(model, rdd,implicitRatings)
+      val testError = validate(model, testRdd,implicitRatings)
       System.gc()
       Thread.sleep(interTrialWait * 1000)
-      time
+
+      (time, trainError, testError)
     }
 
     result
@@ -189,35 +285,48 @@ abstract class RecommendationTests(sc: SparkContext) extends PerfTest {
 
 abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
 
-  def runTest(rdd: RDD[Vector], numIterations: Int, numCenters: Int)
+  def runTest(rdd: RDD[Vector], numIterations: Int, numCenters: Int): KMeansModel
 
   val NUM_POINTS =    ("num-points",   "number of points for clustering tests")
   val NUM_COLUMNS =   ("num-columns",   "number of columns for each point for clustering tests")
   val NUM_CENTERS =   ("num-centers",   "number of centers for clustering tests")
 
-  val intOptions = Seq(NUM_TRIALS, INTER_TRIAL_WAIT, NUM_PARTITIONS, RANDOM_SEED,
-    NUM_ITERATIONS, NUM_POINTS, NUM_CENTERS, NUM_COLUMNS)
-  val options = intOptions ++ stringOptions  ++ booleanOptions
-
-  intOptions.map{case (opt, desc) =>
-    parser.accepts(opt, desc).withRequiredArg().ofType(classOf[Int]).required()
-  }
+  intOptions = intOptions ++ Seq(NUM_CENTERS, NUM_COLUMNS)
+  longOptions = longOptions ++ Seq(NUM_POINTS)
+  val options = intOptions ++ stringOptions  ++ booleanOptions ++ longOptions ++ doubleOptions
+  addOptionsToParser()
 
   var rdd: RDD[Vector] = _
+  var testRdd: RDD[Vector] = _
+
+  def validate(model: KMeansModel, rdd: RDD[Vector]): Double = {
+    val numPoints = rdd.cache().count()
+
+    val error = model.computeCost(rdd)
+
+    math.sqrt(error/numPoints)
+  }
 
   override def createInputData() = {
     val numPartitions: Int = intOptionValue(NUM_PARTITIONS)
     val randomSeed: Int = intOptionValue(RANDOM_SEED)
-    val numPoints: Long = intOptionValue(NUM_POINTS).toLong
+    val numPoints: Long = longOptionValue(NUM_POINTS)
     val numColumns: Int = intOptionValue(NUM_COLUMNS)
+    val numCenters: Int = intOptionValue(NUM_CENTERS)
 
-    rdd = DataGenerator.generateVectors(sc, numPoints, numColumns, numPartitions, randomSeed).cache()
+    val data = DataGenerator.generateKMeansVectors(sc, math.ceil(numPoints*1.25).toLong, numColumns,
+      numCenters, numPartitions, randomSeed)
+
+    val split = data.randomSplit(Array(0.8, 0.2), randomSeed)
+
+    rdd = split(0).cache()
+    testRdd = split(1)
 
     // Materialize rdd
     println("Num Examples: " + rdd.count())
   }
 
-  override def run(): Seq[Double] = {
+  override def run(): Seq[(Double, Double, Double)] = {
     val numTrials = intOptionValue(NUM_TRIALS)
     val interTrialWait: Int = intOptionValue(INTER_TRIAL_WAIT)
     val numIterations: Int = intOptionValue(NUM_ITERATIONS)
@@ -225,12 +334,15 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
 
     val result = (1 to numTrials).map { t =>
       val start = System.currentTimeMillis()
-      runTest(rdd, numIterations, k)
+      val model = runTest(rdd, numIterations, k)
       val end = System.currentTimeMillis()
       val time = (end - start).toDouble / 1000.0
+      val trainError = validate(model, rdd)
+      val testError = validate(model, testRdd)
       System.gc()
       Thread.sleep(interTrialWait * 1000)
-      time
+
+      (time, trainError, testError)
     }
 
     result
@@ -239,39 +351,109 @@ abstract class ClusteringTests(sc: SparkContext) extends PerfTest {
 
 // Regression Algorithms
 class LinearRegressionTest(sc: SparkContext) extends RegressionTest(sc) {
-  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int) {
-    LinearRegressionWithSGD.train(rdd, numIterations)
+  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): LinearRegressionModel = {
+    val stepSize = doubleOptionValue(STEP_SIZE)
+    val lr = new LinearRegressionWithSGD().setIntercept(true)
+    lr.optimizer.setNumIterations(numIterations).setStepSize(stepSize)
+
+    lr.run(rdd)
   }
 }
 
 class RidgeRegressionTest(sc: SparkContext) extends RegressionTest(sc) {
-  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int) {
-    RidgeRegressionWithSGD.train(rdd, numIterations)
+  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): RidgeRegressionModel = {
+    val stepSize = doubleOptionValue(STEP_SIZE)
+    val regParam = doubleOptionValue(REGULARIZATION)
+    val rr = new RidgeRegressionWithSGD().setIntercept(true)
+    rr.optimizer.setNumIterations(numIterations).setStepSize(stepSize).setRegParam(regParam)
+
+    rr.run(rdd)
   }
 }
 
 class LassoTest(sc: SparkContext) extends RegressionTest(sc) {
-  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int) {
-    LassoWithSGD.train(rdd, numIterations)
+  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): LassoModel = {
+    val stepSize = doubleOptionValue(STEP_SIZE)
+    val regParam = doubleOptionValue(REGULARIZATION)
+    val lasso = new LassoWithSGD().setIntercept(true)
+    lasso.optimizer.setNumIterations(numIterations).setStepSize(stepSize).setRegParam(regParam)
+
+    lasso.run(rdd)
   }
 }
 
 // Classification Algorithms
-class LogisticRegressionTest(sc: SparkContext) extends ClassificationTest(sc) {
-  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int) {
-    LogisticRegressionWithSGD.train(rdd, numIterations)
+class LogisticRegressionTest(sc: SparkContext) extends ClassificationTest[LogisticRegressionModel](sc) {
+
+  override def validate(model: LogisticRegressionModel, rdd: RDD[LabeledPoint]): Double = {
+    val numExamples = rdd.count()
+
+    val predictions: RDD[(Double, Double)] = rdd.map { example =>
+      (model.predict(example.features), example.label)
+    }
+    calculateAccuracy(predictions, numExamples)
+  }
+
+  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): LogisticRegressionModel = {
+    val stepSize = doubleOptionValue(STEP_SIZE)
+
+    LogisticRegressionWithSGD.train(rdd, numIterations, stepSize)
   }
 }
 
-class NaiveBayesTest(sc: SparkContext) extends ClassificationTest(sc) {
-  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int) {
-    NaiveBayes.train(rdd)
+class NaiveBayesTest(sc: SparkContext) extends ClassificationTest[NaiveBayesModel](sc) {
+
+  override def validate(model: NaiveBayesModel, rdd: RDD[LabeledPoint]): Double = {
+    val numExamples = rdd.count()
+
+    val predictions: RDD[(Double, Double)] = rdd.map { example =>
+      (model.predict(example.features), example.label)
+    }
+    calculateAccuracy(predictions, numExamples)
+  }
+
+  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): NaiveBayesModel = {
+    val lambda = doubleOptionValue(SMOOTHING)
+
+    NaiveBayes.train(rdd, lambda)
   }
 }
 
-class SVMTest(sc: SparkContext) extends ClassificationTest(sc) {
-  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int) {
-    SVMWithSGD.train(rdd, numIterations)
+class SVMTest(sc: SparkContext) extends ClassificationTest[SVMModel](sc) {
+
+  override def validate(model: SVMModel, rdd: RDD[LabeledPoint]): Double = {
+    val numExamples = rdd.count()
+
+    val predictions: RDD[(Double, Double)] = rdd.map { example =>
+      (model.predict(example.features), example.label)
+    }
+    calculateAccuracy(predictions, numExamples)
+  }
+
+  override def createInputData() = {
+    val numExamples: Long = longOptionValue(NUM_EXAMPLES)
+    val numFeatures: Int = intOptionValue(NUM_FEATURES)
+    val numPartitions: Int = intOptionValue(NUM_PARTITIONS)
+    val randomSeed: Int = intOptionValue(RANDOM_SEED)
+    val sf: Double = doubleOptionValue(SCALE)
+
+    val data = DataGenerator.generateLabeledPoints(sc, math.ceil(numExamples*1.25).toLong,
+      numFeatures, 0.0, sf, numPartitions,randomSeed, "SVM")
+
+    val split = data.randomSplit(Array(0.8, 0.2), randomSeed)
+
+    rdd = split(0).cache()
+    testRdd = split(1)
+
+    // Materialize rdd
+    println("Num Examples: " + rdd.count())
+  }
+
+  override def runTest(rdd: RDD[LabeledPoint], numIterations: Int): SVMModel = {
+    val stepSize = doubleOptionValue(STEP_SIZE)
+    val regParam = doubleOptionValue(REGULARIZATION)
+
+    SVMWithSGD.train(rdd, numIterations, stepSize, regParam)
   }
 }
 
@@ -283,7 +465,7 @@ class DecisionTreeTest(sc: SparkContext) extends DecisionTreeTests(sc) {
     val randomSeed: Int = intOptionValue(RANDOM_SEED)
     val numPartitions: Int = intOptionValue(NUM_PARTITIONS)
     // Data dimensions and type
-    val numExamples: Long = intOptionValue(NUM_EXAMPLES).toLong
+    val numExamples: Long = longOptionValue(NUM_EXAMPLES)
     val numFeatures: Int = intOptionValue(NUM_FEATURES)
     val labelType: Int = intOptionValue(LABEL_TYPE)
     val fracCategoricalFeatures: Double = doubleOptionValue(FRAC_CATEGORICAL_FEATURES)
@@ -322,14 +504,16 @@ class DecisionTreeTest(sc: SparkContext) extends DecisionTreeTests(sc) {
 
 // Recommendation
 class ALSTest(sc: SparkContext) extends RecommendationTests(sc) {
-  override def runTest(rdd: RDD[Rating], numIterations: Int, rank: Int) {
-    ALS.train(rdd, rank, numIterations)
+  override def runTest(rdd: RDD[Rating], numIterations: Int, rank: Int): MatrixFactorizationModel = {
+    val regParam = doubleOptionValue(REGULARIZATION)
+
+    ALS.train(rdd, rank, numIterations, regParam)
   }
 }
 
 // Clustering
 class KMeansTest(sc: SparkContext) extends ClusteringTests(sc) {
-  override def runTest(rdd: RDD[Vector], numIterations: Int, numCenters: Int) {
+  override def runTest(rdd: RDD[Vector], numIterations: Int, numCenters: Int): KMeansModel = {
     KMeans.train(rdd, numCenters, numIterations)
   }
 }

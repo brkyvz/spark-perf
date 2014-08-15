@@ -38,7 +38,7 @@ abstract class StatTests(sc: SparkContext) extends PerfTest {
     rdd = RandomRDDGenerators.normalVectorRDD(sc, m, n, numPartitions, seed)
     trainingSet = DataGenerator.generateClassificationLabeledPoints(sc, m, n, 0.5, 1.0, numPartitions)
     observed = Vectors.dense(Array.fill(m.toInt)(rng.nextDouble()))
-    counts = Matrices.dense(m.toInt, n.toInt, Array.fill(m.toInt * n.toInt)(rng.nextDouble()))
+    counts = Matrices.dense(m.toInt, m.toInt, Array.fill(m.toInt * m.toInt)(rng.nextDouble()))
   }
 
   override def run(): (Double, Double, Double) = {

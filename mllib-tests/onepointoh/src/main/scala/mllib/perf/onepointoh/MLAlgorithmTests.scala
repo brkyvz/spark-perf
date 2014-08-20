@@ -8,6 +8,10 @@ import org.apache.spark.mllib.clustering._
 import org.apache.spark.mllib.linalg._
 import org.apache.spark.mllib.recommendation.{ALS, MatrixFactorizationModel, Rating}
 import org.apache.spark.mllib.regression._
+import org.apache.spark.mllib.tree.DecisionTree
+import org.apache.spark.mllib.tree.configuration.Algo._
+import org.apache.spark.mllib.tree.configuration.QuantileStrategy
+import org.apache.spark.mllib.tree.impurity.{Gini, Variance}
 import org.apache.spark.mllib.tree.model.DecisionTreeModel
 import org.apache.spark.rdd.RDD
 
@@ -394,7 +398,6 @@ class KMeansTest(sc: SparkContext) extends ClusteringTests(sc) {
   }
 }
 
-// TODO: Joseph, modify here!
 /**
  * Parent class for tests which run on a large dataset.
  *
@@ -404,7 +407,7 @@ class KMeansTest(sc: SparkContext) extends ClusteringTests(sc) {
  */
 abstract class DecisionTreeTests(sc: SparkContext) extends PerfTest {
 
-  def runTest(rdd: RDD[LabeledPoint])
+  def runTest(rdd: RDD[LabeledPoint]): DecisionTreeModel
 
   val NUM_EXAMPLES = ("num-examples", "number of examples for regression tests")
   val NUM_FEATURES = ("num-features", "number of features of each example for regression tests")
@@ -453,7 +456,8 @@ abstract class DecisionTreeTests(sc: SparkContext) extends PerfTest {
       (model.predict(example.features), example.label)
     }
     predictions.map { case (pred, label) =>
-      if (pred == label) 1.0 else 0.0
+      val pred01 = if (pred > 0.5) 1 else 0
+      if (pred01 == label) 1.0 else 0.0
     }.sum() * 100.0 / numExamples
   }
 
@@ -470,26 +474,61 @@ abstract class DecisionTreeTests(sc: SparkContext) extends PerfTest {
   override def run(): (Double, Double, Double) = {
 
     val start = System.currentTimeMillis()
-    runTest(rdd)
+    val model = runTest(rdd)
+    println(model)
     val end = System.currentTimeMillis()
     val time = (end - start).toDouble / 1000.0
-    /*
-    val trainError = validate(model, rdd)
+    val trainAccuracy = validate(model, rdd)
     val testError = validate(model, testRdd)
-    */
-    (time, 0.0, 0.0)
+    (time, trainAccuracy, testError)
   }
 
 }
 
-// TODO: Joseph, modify here!
 class DecisionTreeTest(sc: SparkContext) extends DecisionTreeTests(sc) {
 
   override def createInputData(seed: Long) = {
+    // Generic test options
+    val numPartitions: Int = intOptionValue(NUM_PARTITIONS)
+    // Data dimensions and type
+    val numExamples: Long = longOptionValue(NUM_EXAMPLES)
+    val numFeatures: Int = intOptionValue(NUM_FEATURES)
+    val labelType: Int = intOptionValue(LABEL_TYPE)
+    val fracCategoricalFeatures: Double = doubleOptionValue(FRAC_CATEGORICAL_FEATURES)
+    val fracBinaryFeatures: Double = doubleOptionValue(FRAC_BINARY_FEATURES)
+    // Model specification
+    val treeDepth: Int = intOptionValue(TREE_DEPTH)
 
+    val (rdd_, categoricalFeaturesInfo_) =
+      DataGenerator.generateDecisionTreeLabeledPoints(sc, math.ceil(numExamples*1.25).toLong,
+        numFeatures, numPartitions, labelType,
+        fracCategoricalFeatures, fracBinaryFeatures, treeDepth, seed)
+
+    val splits = rdd_.randomSplit(Array(0.8, 0.2), seed)
+
+    rdd = splits(0).cache()
+    testRdd = splits(1)
+    categoricalFeaturesInfo = categoricalFeaturesInfo_
+
+    // Materialize rdd
+    println("Num Examples: " + rdd.count())
   }
 
-  override def runTest(rdd: RDD[LabeledPoint]) {
-
+  override def runTest(rdd: RDD[LabeledPoint]): DecisionTreeModel = {
+    val labelType: Int = intOptionValue(LABEL_TYPE)
+    val treeDepth: Int = intOptionValue(TREE_DEPTH)
+    val maxBins: Int = intOptionValue(MAX_BINS)
+    if (labelType == 0) {
+      // Regression
+      DecisionTree.train(rdd, Regression, Variance, treeDepth, maxBins, QuantileStrategy.Sort,
+        categoricalFeaturesInfo)
+    } else if (labelType == 2) {
+      // Classification
+      DecisionTree.train(rdd, Classification, Gini, treeDepth,
+        maxBins, QuantileStrategy.Sort, categoricalFeaturesInfo)
+    } else {
+      throw new IllegalArgumentException(s"Bad label-type parameter given to DecisionTreeTest: $labelType." +
+        s"  Only 0 (regression) or 2 (binary classification) supported for Spark 1.0.")
+    }
   }
 }
